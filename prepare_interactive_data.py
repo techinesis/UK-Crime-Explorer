@@ -65,7 +65,5 @@ crime_agg = (
 
 crime_agg.to_csv("outputs/crime_aggregated_for_app.csv", index=False)
 
-print("Done.")
-print("Created:")
-print("- outputs/london_lsoa_boundaries_clean.geojson")
-print("- outputs/crime_aggregated_for_app.csv")
+print("ok")
+
