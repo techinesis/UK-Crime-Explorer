@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Large local data files - do not push to GitHub
+data/london_crime_by_lsoa.csv
+outputs/crime_aggregated_for_app.csv

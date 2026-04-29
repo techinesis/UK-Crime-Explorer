@@ -1,0 +1,9 @@
+numpy==1.26.4
+pandas
+geopandas
+streamlit
+streamlit-folium
+folium
+branca
+mapclassify
+pyarrow
