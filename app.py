@@ -8,7 +8,7 @@ import branca.colormap as cm
 
 st.set_page_config(
     page_title="London Crime Explorer",
-    page_icon="🕵️",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
