@@ -1,0 +1,10 @@
+major_category,severity_weight,preventability_multiplier,preventability_tier
+Burglary,314.0,0.5,Medium
+Criminal Damage,96.61,0.1,Low
+Drugs,187.45,0.1,Low
+Fraud or Forgery,57.29,0.1,Low
+Other Notifiable Offences,195.93,0.1,Low
+Robbery,365.0,1.0,High
+Sexual Offences,655.07,0.1,Low
+Theft and Handling,20.98,0.5,Medium
+Violence Against the Person,807.6,0.1,Low

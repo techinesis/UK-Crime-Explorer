@@ -6,6 +6,7 @@ os.makedirs("outputs", exist_ok=True)
 
 crime_path = "data/london_crime_by_lsoa.csv"
 boundary_path = "data/statistical-gis-boundaries-london/ESRI/LSOA_2011_London_gen_MHW.shp"
+borough_boundary_path = "data/statistical-gis-boundaries-london/ESRI/London_Borough_Excluding_MHW.shp"
 
 print("Loading crime data...")
 crime_df = pd.read_csv(crime_path)
@@ -44,6 +45,30 @@ lsoa_map["geometry"] = lsoa_map["geometry"].simplify(
 # Save clean boundaries
 lsoa_map.to_file(
     "outputs/london_lsoa_boundaries_clean.geojson",
+    driver="GeoJSON"
+)
+
+print("Loading borough boundary data...")
+borough_map = gpd.read_file(borough_boundary_path)
+
+borough_map = borough_map[["GSS_CODE", "NAME", "geometry"]].copy()
+
+borough_map = borough_map.rename(
+    columns={
+        "GSS_CODE": "borough_code",
+        "NAME": "borough"
+    }
+)
+
+borough_map = borough_map.to_crs(epsg=4326)
+
+borough_map["geometry"] = borough_map["geometry"].simplify(
+    tolerance=0.0005,
+    preserve_topology=True
+)
+
+borough_map.to_file(
+    "outputs/london_borough_boundaries_clean.geojson",
     driver="GeoJSON"
 )
 

@@ -109,7 +109,9 @@ st.markdown(
 
 
 BOUNDARIES_PATH = "outputs/london_lsoa_boundaries_clean.geojson"
+BOROUGH_BOUNDARIES_PATH = "outputs/london_borough_boundaries_clean.geojson"
 CRIME_PATH = "outputs/crime_aggregated_for_app.csv"
+WEIGHTS_PATH = "data/category_weights.csv"
 
 # Approximate London bounding box
 LONDON_BOUNDS = [
@@ -117,19 +119,49 @@ LONDON_BOUNDS = [
     [51.70, 0.35]
 ]
 
+ANIMATION_FRAME_INTERVAL_MS = 700
+
 
 @st.cache_data
 def load_data():
     crime_df = pd.read_csv(CRIME_PATH)
     boundaries = gpd.read_file(BOUNDARIES_PATH)
+    borough_boundaries = gpd.read_file(BOROUGH_BOUNDARIES_PATH)
+    weights = pd.read_csv(WEIGHTS_PATH)
 
     crime_df["lsoa_code"] = crime_df["lsoa_code"].astype(str)
     boundaries["lsoa_code"] = boundaries["lsoa_code"].astype(str)
 
-    return crime_df, boundaries
+    crime_df = crime_df.merge(weights, on="major_category", how="left")
+
+    missing_weights = crime_df["severity_weight"].isna()
+    if missing_weights.any():
+        crime_df.loc[missing_weights, "severity_weight"] = 1.0
+        crime_df.loc[missing_weights, "preventability_multiplier"] = 0.0
+        crime_df.loc[missing_weights, "preventability_tier"] = "Low"
+
+    crime_df["severity_weighted"] = (
+        crime_df["crime_count"] * crime_df["severity_weight"]
+    )
+    crime_df["preventability_weighted"] = (
+        crime_df["crime_count"] * crime_df["preventability_multiplier"]
+    )
+    crime_df["composite_weighted"] = (
+        crime_df["crime_count"]
+        * crime_df["severity_weight"]
+        * crime_df["preventability_multiplier"]
+    )
+
+    return crime_df, boundaries, borough_boundaries
 
 
-def create_map(map_data, selected_metric, selected_borough):
+def create_map(
+    map_data,
+    selected_metric,
+    selected_borough,
+    aggregation_level,
+    metric_caption
+):
     m = folium.Map(
         location=[51.5074, -0.1278],
         zoom_start=10,
@@ -162,11 +194,7 @@ def create_map(map_data, selected_metric, selected_borough):
         max_value = 1
 
     colormap = cm.linear.YlOrRd_09.scale(min_value, max_value)
-
-    if selected_metric == "crime_share":
-        colormap.caption = "Crime share within selected data (%)"
-    else:
-        colormap.caption = "Recorded crime count"
+    colormap.caption = metric_caption
 
     def style_function(feature):
         value = feature["properties"].get(selected_metric, 0)
@@ -189,19 +217,26 @@ def create_map(map_data, selected_metric, selected_borough):
             "fillOpacity": 0.88,
         }
 
-    tooltip = folium.GeoJsonTooltip(
-        fields=[
+    if aggregation_level == "Borough":
+        tooltip_fields = ["borough", "crime_count", selected_metric]
+        tooltip_aliases = ["Borough:", "Crime count:", "Displayed value:"]
+    else:
+        tooltip_fields = [
             "lsoa_name",
             "borough",
             "crime_count",
-            selected_metric
-        ],
-        aliases=[
+            selected_metric,
+        ]
+        tooltip_aliases = [
             "LSOA:",
             "Borough:",
             "Crime count:",
-            "Displayed value:"
-        ],
+            "Displayed value:",
+        ]
+
+    tooltip = folium.GeoJsonTooltip(
+        fields=tooltip_fields,
+        aliases=tooltip_aliases,
         localize=True,
         sticky=True,
         labels=True,
@@ -239,7 +274,57 @@ def create_map(map_data, selected_metric, selected_borough):
     return m
 
 
-crime_df, boundaries = load_data()
+crime_df, boundaries, borough_boundaries = load_data()
+
+year_month_pairs = sorted(
+    crime_df[["year", "month"]]
+    .drop_duplicates()
+    .itertuples(index=False, name=None)
+)
+
+
+def format_period(pair):
+    return f"{pair[0]}-{pair[1]:02d}"
+
+
+if "playing" not in st.session_state:
+    st.session_state.playing = False
+
+if "period_idx" not in st.session_state:
+    st.session_state.period_idx = 0
+
+if "anim_tick" not in st.session_state:
+    st.session_state.anim_tick = 0
+
+last_seen_tick = st.session_state.get("_seen_anim_tick", 0)
+if (
+    st.session_state.playing
+    and st.session_state.anim_tick > last_seen_tick
+):
+    next_idx = st.session_state.period_idx + 1
+    if next_idx >= len(year_month_pairs):
+        st.session_state.playing = False
+    else:
+        st.session_state.period_idx = next_idx
+    st.session_state._seen_anim_tick = st.session_state.anim_tick
+
+st.session_state.period_idx = min(
+    st.session_state.period_idx,
+    len(year_month_pairs) - 1
+)
+
+
+@st.fragment(
+    run_every=(
+        f"{ANIMATION_FRAME_INTERVAL_MS}ms"
+        if st.session_state.playing
+        else None
+    )
+)
+def _animation_tick():
+    if st.session_state.playing:
+        st.session_state.anim_tick += 1
+        st.rerun(scope="app")
 
 
 # -----------------------------
@@ -266,23 +351,71 @@ with st.sidebar:
 
     crime_types = sorted(crime_df["major_category"].dropna().unique())
 
-    selected_crime_type = st.selectbox(
+    selected_crime_types = st.multiselect(
         "Crime type",
-        options=["All crime types"] + crime_types
+        options=crime_types,
+        default=crime_types,
+        help="Empty selection counts as all crime types."
     )
 
-    years = sorted(crime_df["year"].dropna().unique())
-
-    selected_year = st.selectbox(
-        "Year",
-        options=["All years"] + years
+    selected_tier = st.selectbox(
+        "Preventability tier",
+        options=["All tiers", "High", "Medium", "Low"],
+        help="Tiers are defined in data/category_weights.csv "
+             "and reflect how responsive each crime type is to visible "
+             "patrol presence."
     )
 
-    selected_months = st.multiselect(
-        "Month",
-        options=list(range(1, 13)),
-        default=list(range(1, 13))
+    animate = st.checkbox(
+        "Animate over time",
+        value=False,
+        help="Replaces the year + month filters with a single play "
+             "control that steps through every month in the dataset."
     )
+
+    if animate:
+        idx = st.select_slider(
+            "Period",
+            options=list(range(len(year_month_pairs))),
+            key="period_idx",
+            format_func=lambda i: format_period(year_month_pairs[i])
+        )
+
+        play_col, reset_col = st.columns(2)
+
+        with play_col:
+            if st.session_state.playing:
+                if st.button("⏸ Pause", use_container_width=True):
+                    st.session_state.playing = False
+                    st.rerun()
+            else:
+                if st.button("▶ Play", use_container_width=True):
+                    st.session_state.playing = True
+                    st.rerun()
+
+        with reset_col:
+            if st.button("⏮ Reset", use_container_width=True):
+                st.session_state.period_idx = 0
+                st.session_state.playing = False
+                st.rerun()
+
+        selected_year, selected_month = year_month_pairs[idx]
+        selected_months = [selected_month]
+    else:
+        st.session_state.playing = False
+
+        years = sorted(crime_df["year"].dropna().unique())
+
+        selected_year = st.selectbox(
+            "Year",
+            options=["All years"] + list(years)
+        )
+
+        selected_months = st.multiselect(
+            "Month",
+            options=list(range(1, 13)),
+            default=list(range(1, 13))
+        )
 
     boroughs = sorted(crime_df["borough"].dropna().unique())
 
@@ -293,11 +426,20 @@ with st.sidebar:
 
     st.markdown("---")
 
+    aggregation_level = st.radio(
+        "Aggregation level",
+        options=["LSOA", "Borough"],
+        horizontal=True
+    )
+
     classification_mode = st.radio(
         "Map mode",
         options=[
             "Raw crime count",
-            "Crime share within selected data"
+            "Crime share within selected data",
+            "Severity-weighted",
+            "Preventability-filtered",
+            "Composite (severity x preventability)"
         ]
     )
 
@@ -308,8 +450,11 @@ with st.sidebar:
 
 filtered = crime_df.copy()
 
-if selected_crime_type != "All crime types":
-    filtered = filtered[filtered["major_category"] == selected_crime_type]
+if selected_crime_types:
+    filtered = filtered[filtered["major_category"].isin(selected_crime_types)]
+
+if selected_tier != "All tiers":
+    filtered = filtered[filtered["preventability_tier"] == selected_tier]
 
 if selected_year != "All years":
     filtered = filtered[filtered["year"] == selected_year]
@@ -321,19 +466,55 @@ if selected_borough != "All boroughs":
     filtered = filtered[filtered["borough"] == selected_borough]
 
 
-crime_by_lsoa = (
-    filtered
-    .groupby("lsoa_code", as_index=False)["crime_count"]
-    .sum()
-)
+METRIC_COLUMNS = [
+    "crime_count",
+    "severity_weighted",
+    "preventability_weighted",
+    "composite_weighted",
+]
 
-map_data = boundaries.merge(
-    crime_by_lsoa,
-    on="lsoa_code",
-    how="left"
-)
+if aggregation_level == "Borough":
+    aggregated = (
+        filtered
+        .groupby("borough", as_index=False)[METRIC_COLUMNS]
+        .sum()
+    )
+    map_data = borough_boundaries.merge(
+        aggregated,
+        on="borough",
+        how="left"
+    )
+else:
+    aggregated = (
+        filtered
+        .groupby("lsoa_code", as_index=False)[METRIC_COLUMNS]
+        .sum()
+    )
+    map_data = boundaries.merge(
+        aggregated,
+        on="lsoa_code",
+        how="left"
+    )
 
-map_data["crime_count"] = map_data["crime_count"].fillna(0)
+for column in METRIC_COLUMNS:
+    map_data[column] = map_data[column].fillna(0)
+
+
+METRIC_BY_MODE = {
+    "Raw crime count": ("crime_count", "Recorded crime count"),
+    "Severity-weighted": (
+        "severity_weighted",
+        "Severity-weighted crime count"
+    ),
+    "Preventability-filtered": (
+        "preventability_weighted",
+        "Preventability-weighted crime count"
+    ),
+    "Composite (severity x preventability)": (
+        "composite_weighted",
+        "Composite (severity x preventability) score"
+    ),
+}
 
 if classification_mode == "Crime share within selected data":
     total_selected_crime = map_data["crime_count"].sum()
@@ -346,8 +527,9 @@ if classification_mode == "Crime share within selected data":
         map_data["crime_share"] = 0
 
     selected_metric = "crime_share"
+    metric_caption = "Crime share within selected data (%)"
 else:
-    selected_metric = "crime_count"
+    selected_metric, metric_caption = METRIC_BY_MODE[classification_mode]
 
 
 # -----------------------------
@@ -355,13 +537,22 @@ else:
 # -----------------------------
 
 total_crimes = int(map_data["crime_count"].sum())
-active_lsoas = int((map_data["crime_count"] > 0).sum())
-average_per_lsoa = round(map_data["crime_count"].mean(), 2)
+active_units = int((map_data["crime_count"] > 0).sum())
+average_per_unit = round(map_data["crime_count"].mean(), 2)
 
-top_lsoas = (
-    map_data[
-        ["lsoa_code", "lsoa_name", "borough", "crime_count"]
-    ]
+if aggregation_level == "Borough":
+    top_units_columns = ["borough", "crime_count"]
+    top_units_label = "Top 10 boroughs"
+    active_units_label = "Boroughs with crimes"
+    average_label = "Average per borough"
+else:
+    top_units_columns = ["lsoa_code", "lsoa_name", "borough", "crime_count"]
+    top_units_label = "Top 10 LSOAs"
+    active_units_label = "LSOAs with crimes"
+    average_label = "Average per LSOA"
+
+top_units = (
+    map_data[top_units_columns]
     .sort_values("crime_count", ascending=False)
     .head(10)
 )
@@ -384,10 +575,10 @@ with metric_col_1:
     st.metric("Total selected crimes", f"{total_crimes:,}")
 
 with metric_col_2:
-    st.metric("LSOAs with crimes", f"{active_lsoas:,}")
+    st.metric(active_units_label, f"{active_units:,}")
 
 with metric_col_3:
-    st.metric("Average per LSOA", f"{average_per_lsoa:,}")
+    st.metric(average_label, f"{average_per_unit:,}")
 
 
 left_col, right_col = st.columns([3.2, 1.2])
@@ -408,7 +599,9 @@ with left_col:
     crime_map = create_map(
         map_data=map_data,
         selected_metric=selected_metric,
-        selected_borough=selected_borough
+        selected_borough=selected_borough,
+        aggregation_level=aggregation_level,
+        metric_caption=metric_caption
     )
 
     st_folium(
@@ -421,16 +614,16 @@ with left_col:
 
 with right_col:
     st.markdown(
-        """
+        f"""
         <div class="panel">
-            <div class="section-title">Top 10 LSOAs</div>
+            <div class="section-title">{top_units_label}</div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
     st.dataframe(
-        top_lsoas,
+        top_units,
         use_container_width=True,
         hide_index=True
     )
@@ -447,10 +640,23 @@ with right_col:
         unsafe_allow_html=True
     )
 
-    st.write(f"**Crime type:** {selected_crime_type}")
-    st.write(f"**Year:** {selected_year}")
+    if selected_crime_types and len(selected_crime_types) < len(crime_types):
+        crime_type_label = ", ".join(selected_crime_types)
+    else:
+        crime_type_label = "All crime types"
+
+    if animate:
+        period_label = format_period(year_month_pairs[st.session_state.period_idx])
+        st.write(f"**Period:** {period_label} (animated)")
+    else:
+        st.write(f"**Year:** {selected_year}")
+        st.write(f"**Months selected:** {len(selected_months)}")
+
+    st.write(f"**Crime types:** {crime_type_label}")
+    st.write(f"**Tier:** {selected_tier}")
     st.write(f"**Borough:** {selected_borough}")
-    st.write(f"**Months selected:** {len(selected_months)}")
+    st.write(f"**Aggregation level:** {aggregation_level}")
+    st.write(f"**Map mode:** {classification_mode}")
 
 
 st.markdown("---")
@@ -462,3 +668,20 @@ st.dataframe(
     use_container_width=True,
     hide_index=True
 )
+
+st.caption(
+    "Severity weights are derived from the Cambridge Crime Harm Index (CCHI) "
+    "2020 update — each weight is the offence-count-weighted mean CCHI score "
+    "(in days of recommended sentence) across all CCHI offences that map to a "
+    "given major_category. Severity-weighted values can therefore be read as "
+    "approximate harm-days. Because CCHI is defined per offence code while the "
+    "underlying dataset only stores 9 major categories, single-category weights "
+    "mix offences of different severity (e.g., \"Violence Against the Person\" "
+    "pools common assault with more serious offences). Preventability "
+    "multipliers are still placeholder values from the expansion spec's first "
+    "pass — sub-question 4 will replace them. Re-run "
+    "`prepare_category_weights.py` after editing either source."
+)
+
+
+_animation_tick()
