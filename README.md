@@ -18,7 +18,7 @@ Sidebar filters:
 - Borough drilldown.
 - Year + month filters, **or** an animated time slider that steps through every
   month in the dataset (Jan 2008 – Dec 2016) with Play / Pause / Reset.
-- Aggregation level toggle: **LSOA** (≈4,800 polygons) or **Borough** (33).
+- Aggregation level toggle: **LSOA** (≈4,800 polygons), **Ward** (≈625), or **Borough** (33). Ward and borough aggregations sum the underlying LSOA crime counts.
 
 Map modes (each rescales the choropleth):
 
@@ -143,6 +143,8 @@ Restart Streamlit afterwards to clear the `@st.cache_data` cache.
 └── outputs/
     ├── london_lsoa_boundaries_clean.geojson      # Committed (~4 MB)
     ├── london_borough_boundaries_clean.geojson   # Committed (~150 KB)
+    ├── london_ward_boundaries_clean.geojson      # Committed (~750 KB)
+    ├── lsoa_to_ward.csv                          # Committed; LSOA → ward map
     └── crime_aggregated_for_app.csv              # Gitignored — regenerate via ETL
 ```
 

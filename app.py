@@ -110,8 +110,10 @@ st.markdown(
 
 BOUNDARIES_PATH = "outputs/london_lsoa_boundaries_clean.geojson"
 BOROUGH_BOUNDARIES_PATH = "outputs/london_borough_boundaries_clean.geojson"
+WARD_BOUNDARIES_PATH = "outputs/london_ward_boundaries_clean.geojson"
 CRIME_PATH = "outputs/crime_aggregated_for_app.csv"
 WEIGHTS_PATH = "data/category_weights.csv"
+LSOA_TO_WARD_PATH = "outputs/lsoa_to_ward.csv"
 
 # Approximate London bounding box
 LONDON_BOUNDS = [
@@ -127,12 +129,18 @@ def load_data():
     crime_df = pd.read_csv(CRIME_PATH)
     boundaries = gpd.read_file(BOUNDARIES_PATH)
     borough_boundaries = gpd.read_file(BOROUGH_BOUNDARIES_PATH)
+    ward_boundaries = gpd.read_file(WARD_BOUNDARIES_PATH)
     weights = pd.read_csv(WEIGHTS_PATH)
+    lsoa_to_ward = pd.read_csv(LSOA_TO_WARD_PATH)
 
     crime_df["lsoa_code"] = crime_df["lsoa_code"].astype(str)
     boundaries["lsoa_code"] = boundaries["lsoa_code"].astype(str)
+    ward_boundaries["ward_code"] = ward_boundaries["ward_code"].astype(str)
+    lsoa_to_ward["lsoa_code"] = lsoa_to_ward["lsoa_code"].astype(str)
+    lsoa_to_ward["ward_code"] = lsoa_to_ward["ward_code"].astype(str)
 
     crime_df = crime_df.merge(weights, on="major_category", how="left")
+    crime_df = crime_df.merge(lsoa_to_ward, on="lsoa_code", how="left")
 
     missing_weights = crime_df["severity_weight"].isna()
     if missing_weights.any():
@@ -152,7 +160,7 @@ def load_data():
         * crime_df["preventability_multiplier"]
     )
 
-    return crime_df, boundaries, borough_boundaries
+    return crime_df, boundaries, borough_boundaries, ward_boundaries
 
 
 def create_map(
@@ -220,6 +228,14 @@ def create_map(
     if aggregation_level == "Borough":
         tooltip_fields = ["borough", "crime_count", selected_metric]
         tooltip_aliases = ["Borough:", "Crime count:", "Displayed value:"]
+    elif aggregation_level == "Ward":
+        tooltip_fields = ["ward_name", "borough", "crime_count", selected_metric]
+        tooltip_aliases = [
+            "Ward:",
+            "Borough:",
+            "Crime count:",
+            "Displayed value:",
+        ]
     else:
         tooltip_fields = [
             "lsoa_name",
@@ -274,7 +290,7 @@ def create_map(
     return m
 
 
-crime_df, boundaries, borough_boundaries = load_data()
+crime_df, boundaries, borough_boundaries, ward_boundaries = load_data()
 
 year_month_pairs = sorted(
     crime_df[["year", "month"]]
@@ -428,7 +444,7 @@ with st.sidebar:
 
     aggregation_level = st.radio(
         "Aggregation level",
-        options=["LSOA", "Borough"],
+        options=["LSOA", "Ward", "Borough"],
         horizontal=True
     )
 
@@ -482,6 +498,18 @@ if aggregation_level == "Borough":
     map_data = borough_boundaries.merge(
         aggregated,
         on="borough",
+        how="left"
+    )
+elif aggregation_level == "Ward":
+    aggregated = (
+        filtered
+        .dropna(subset=["ward_code"])
+        .groupby("ward_code", as_index=False)[METRIC_COLUMNS]
+        .sum()
+    )
+    map_data = ward_boundaries.merge(
+        aggregated,
+        on="ward_code",
         how="left"
     )
 else:
@@ -545,6 +573,11 @@ if aggregation_level == "Borough":
     top_units_label = "Top 10 boroughs"
     active_units_label = "Boroughs with crimes"
     average_label = "Average per borough"
+elif aggregation_level == "Ward":
+    top_units_columns = ["ward_code", "ward_name", "borough", "crime_count"]
+    top_units_label = "Top 10 wards"
+    active_units_label = "Wards with crimes"
+    average_label = "Average per ward"
 else:
     top_units_columns = ["lsoa_code", "lsoa_name", "borough", "crime_count"]
     top_units_label = "Top 10 LSOAs"
