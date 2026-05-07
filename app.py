@@ -195,13 +195,11 @@ st.markdown(
 )
 
 
-BOUNDARIES_PATH = "outputs/london_lsoa_boundaries_clean.geojson"
-BOROUGH_BOUNDARIES_PATH = "outputs/london_borough_boundaries_clean.geojson"
-WARD_BOUNDARIES_PATH = "outputs/london_ward_boundaries_clean.geojson"
-CRIME_PATH = "outputs/crime_aggregated_for_app.csv"
+BOUNDARIES_PATH = "data/london_lsoa_boundaries_clean.geojson"
+BOROUGH_BOUNDARIES_PATH = "data/london_borough_boundaries_clean.geojson"
+WARD_BOUNDARIES_PATH = "data/london_ward_boundaries_clean.geojson"
 WEIGHTS_PATH = "data/category_weights.csv"
-LSOA_TO_WARD_PATH = "outputs/lsoa_to_ward.csv"
-BOUNDARIES_PATH = ".cache/london_lsoa_boundaries.geojson"
+LSOA_TO_WARD_PATH = "data/lsoa_to_ward.csv"
 CRIME_PATH = ".cache/crime-data/2026-01.csv"
 
 # Approximate London bounding box

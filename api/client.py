@@ -7,13 +7,15 @@ from requests import get
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
-from tqdm import tqdm
+import tarfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 CRIME_CACHE_PATH = Path(".cache/crime-data")
-LSOA_DATA_PATH = Path("data/statistical-gis-boundaries-london/ESRI/LSOA_2011_London_gen_MHW.shp")
 LSOA_CACHE_PATH = Path(".cache/london_lsoa_boundaries.geojson")
+
+LSOA_DATA_PATH = Path("data/statistical-gis-boundaries-london/ESRI/LSOA_2011_London_gen_MHW.shp")
+CRIME_DATA_PATH = Path("data/crime-data.tar.xz")
 
 
 def __now_year_month() -> tuple[int, int]:
@@ -76,6 +78,15 @@ def split_poly(poly: str, splits: int = 2) -> list[str]:
             )
 
     return polys
+
+
+def prepare_premade_crime_data():
+    print("[LOG] Extracting existing crime data")
+
+    CRIME_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+
+    crime_data = tarfile.open(CRIME_DATA_PATH, "r:xz")
+    crime_data.extractall(CRIME_CACHE_PATH.parent)
 
 
 def load_london_lsoas() -> gpd.GeoDataFrame:
@@ -278,6 +289,9 @@ class Client:
         exclude_year_month: Optional[list[str]] = None,
         category: str = "all-crime",
     ) -> pd.DataFrame:
+        if not CRIME_CACHE_PATH.exists() or not any(CRIME_CACHE_PATH.iterdir()):
+            prepare_premade_crime_data()
+
         assert start_year <= end_year
 
         exclude_years = exclude_years if exclude_years is not None else []
