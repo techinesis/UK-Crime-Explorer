@@ -1,0 +1,14 @@
+[theme]
+# The dashboard is designed dark-mode-first. Pinning `base = "dark"` makes
+# Streamlit's built-in components (markdown, dataframe, captions, inputs,
+# selectboxes, etc.) render with dark-theme colours regardless of the
+# user's OS-level preference, so the custom CSS in app.py and the
+# component-level rules agree on every surface.
+base = "dark"
+
+# Slate palette (Tailwind's slate scale). Bright blue accent is used by
+# Streamlit for radio dots, checkboxes, sliders, and link defaults.
+primaryColor = "#60a5fa"
+backgroundColor = "#0f172a"
+secondaryBackgroundColor = "#1e293b"
+textColor = "#f1f5f9"

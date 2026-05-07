@@ -21,74 +21,150 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        .stApp {
-            background: linear-gradient(180deg, #f7f8fb 0%, #eef1f6 100%);
+        /* Dark-mode-first palette. .streamlit/config.toml pins the theme to
+           dark; these rules harden the design so body text stays readable
+           even if the config is bypassed (embedded iframe, Streamlit Cloud
+           override, etc.). All values are from Tailwind's slate scale. */
+        .stApp,
+        [data-testid="stAppViewContainer"] {
+            background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+            color: #f1f5f9;
+        }
+
+        /* Default text colour for the main content area. */
+        [data-testid="stMain"],
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"],
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] li,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] strong,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] em,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] h1,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] h2,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] h3,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] h4 {
+            color: #f1f5f9;
+        }
+
+        /* Captions and helper text in the main area: muted slate. */
+        [data-testid="stMain"] [data-testid="stCaptionContainer"],
+        [data-testid="stMain"] [data-testid="stCaptionContainer"] * {
+            color: #94a3b8;
+        }
+
+        /* Markdown links: bright blue, accessible on dark bg. */
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] a {
+            color: #60a5fa;
+        }
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] a:hover {
+            color: #93c5fd;
+        }
+
+        /* Dataframes inherit dark-theme styling from Streamlit; ensure the
+           radius/clip still apply. */
+        [data-testid="stMain"] [data-testid="stDataFrame"] {
+            border-radius: 12px;
+            overflow: hidden;
         }
 
         .main-title {
             font-size: 2.4rem;
             font-weight: 800;
-            color: #111827;
+            color: #f8fafc;
             margin-bottom: 0.2rem;
         }
 
         .subtitle {
             font-size: 1rem;
-            color: #6b7280;
+            color: #cbd5e1;
             margin-bottom: 1.5rem;
         }
 
+        /* Sidebar — darker than main bg for clear visual hierarchy. */
         section[data-testid="stSidebar"] {
-            background: #111827;
+            background: #020617;
+            border-right: 1px solid #1e293b;
         }
 
-        section[data-testid="stSidebar"] * {
-            color: #f9fafb;
+        /* Default sidebar text colour. Deliberately NOT `!important` so
+           that Streamlit's own component rules can still colour text
+           inside lighter-bg controls correctly. */
+        section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] span,
+        section[data-testid="stSidebar"] li,
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3,
+        section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+        section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] * {
+            color: #f1f5f9;
         }
 
-        section[data-testid="stSidebar"] label {
-            color: #e5e7eb !important;
+        section[data-testid="stSidebar"] label,
+        section[data-testid="stSidebar"] label * {
+            color: #e2e8f0 !important;
             font-weight: 600;
         }
 
+        /* Sidebar captions / helper text. `!important` because Streamlit's
+           own caption rule otherwise wins the cascade. */
+        section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+        section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] *,
+        section[data-testid="stSidebar"] small {
+            color: #94a3b8 !important;
+        }
+
+        /* Metric cards — dark surface with subtle border. */
         div[data-testid="stMetric"] {
-            background: white;
-            border: 1px solid #e5e7eb;
+            background: #1e293b;
+            border: 1px solid #334155;
             padding: 1rem;
             border-radius: 16px;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
         }
 
-        div[data-testid="stMetric"] label {
-            color: #6b7280 !important;
+        div[data-testid="stMetric"] label,
+        div[data-testid="stMetric"] label * {
+            color: #94a3b8 !important;
         }
 
-        div[data-testid="stMetric"] div {
-            color: #111827 !important;
+        div[data-testid="stMetric"] [data-testid="stMetricValue"],
+        div[data-testid="stMetric"] [data-testid="stMetricValue"] * {
+            color: #f8fafc !important;
         }
 
+        /* Right-column / footer panels. */
         .panel {
-            background: white;
+            background: #1e293b;
             border-radius: 18px;
             padding: 1.2rem;
-            border: 1px solid #e5e7eb;
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.07);
+            border: 1px solid #334155;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
             margin-bottom: 1rem;
+            color: #f1f5f9;
+        }
+
+        .panel p,
+        .panel li,
+        .panel span {
+            color: inherit;
         }
 
         .section-title {
             font-size: 1.25rem;
             font-weight: 750;
-            color: #111827;
+            color: #f8fafc;
             margin-bottom: 0.8rem;
         }
 
         .map-note {
             font-size: 0.9rem;
-            color: #6b7280;
+            color: #94a3b8;
             margin-bottom: 0.6rem;
         }
 
+        /* The Folium choropleth uses the light CartoDB positron tile; keep
+           the iframe's rounded corners so the map sits inside a card. */
         iframe {
             border-radius: 18px !important;
         }
@@ -101,6 +177,7 @@ st.markdown(
         hr {
             margin-top: 1.5rem;
             margin-bottom: 1.5rem;
+            border-color: #334155;
         }
     </style>
     """,
