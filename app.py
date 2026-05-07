@@ -124,8 +124,14 @@ LONDON_BOUNDS = [
 ANIMATION_FRAME_INTERVAL_MS = 700
 
 
-@st.cache_data
-def load_data():
+# Bump this whenever the load_data return shape or the weights CSV schema
+# changes — Streamlit's cache_data keys on parameter values, so changing the
+# default forces every running session to reload.
+LOAD_DATA_CACHE_VERSION = 2
+
+
+@st.cache_data(show_spinner=False)
+def load_data(cache_version: int = LOAD_DATA_CACHE_VERSION):
     crime_df = pd.read_csv(CRIME_PATH)
     boundaries = gpd.read_file(BOUNDARIES_PATH)
     borough_boundaries = gpd.read_file(BOROUGH_BOUNDARIES_PATH)
@@ -142,25 +148,54 @@ def load_data():
     crime_df = crime_df.merge(weights, on="major_category", how="left")
     crime_df = crime_df.merge(lsoa_to_ward, on="lsoa_code", how="left")
 
-    missing_weights = crime_df["severity_weight"].isna()
-    if missing_weights.any():
-        crime_df.loc[missing_weights, "severity_weight"] = 1.0
-        crime_df.loc[missing_weights, "preventability_multiplier"] = 0.0
-        crime_df.loc[missing_weights, "preventability_tier"] = "Low"
+    # Defensive: a major_category in crime_df but absent from
+    # category_weights.csv. Shouldn't happen in practice once both sources
+    # use the same schema, but cheap to guard against.
+    unmapped = crime_df["preventability_multiplier"].isna()
+    if unmapped.any():
+        crime_df.loc[unmapped, "severity_weight_mean"] = 0.0
+        crime_df.loc[unmapped, "severity_weight_median"] = 0.0
+        crime_df.loc[unmapped, "preventability_multiplier"] = 0.0
+        crime_df.loc[unmapped, "preventability_tier"] = "Low"
+        crime_df.loc[unmapped, "preventability_confidence"] = "Low"
+        crime_df.loc[unmapped, "preventability_anchor"] = "(no anchor)"
 
-    crime_df["severity_weighted"] = (
-        crime_df["crime_count"] * crime_df["severity_weight"]
+    # Categories with no CCHI mapping (e.g., Anti-social behaviour in the
+    # 14-schema) keep their preventability values but have NaN severity.
+    # Coerce to 0 for arithmetic; a footer caveat names them.
+    crime_df["severity_weight_mean"] = crime_df["severity_weight_mean"].fillna(0.0)
+    crime_df["severity_weight_median"] = crime_df["severity_weight_median"].fillna(0.0)
+
+    crime_df["severity_weighted_mean"] = (
+        crime_df["crime_count"] * crime_df["severity_weight_mean"]
+    )
+    crime_df["severity_weighted_median"] = (
+        crime_df["crime_count"] * crime_df["severity_weight_median"]
     )
     crime_df["preventability_weighted"] = (
         crime_df["crime_count"] * crime_df["preventability_multiplier"]
     )
-    crime_df["composite_weighted"] = (
+    crime_df["composite_weighted_mean"] = (
         crime_df["crime_count"]
-        * crime_df["severity_weight"]
+        * crime_df["severity_weight_mean"]
+        * crime_df["preventability_multiplier"]
+    )
+    crime_df["composite_weighted_median"] = (
+        crime_df["crime_count"]
+        * crime_df["severity_weight_median"]
         * crime_df["preventability_multiplier"]
     )
 
-    return crime_df, boundaries, borough_boundaries, ward_boundaries
+    return (
+        crime_df,
+        boundaries,
+        borough_boundaries,
+        ward_boundaries,
+        weights,
+    )
+
+
+CONFIDENCE_EMOJI = {"High": "🟢", "Medium": "🟡", "Low": "🔴"}
 
 
 def create_map(
@@ -290,7 +325,27 @@ def create_map(
     return m
 
 
-crime_df, boundaries, borough_boundaries, ward_boundaries = load_data()
+(
+    crime_df,
+    boundaries,
+    borough_boundaries,
+    ward_boundaries,
+    weights,
+) = load_data()
+
+confidence_by_category = dict(
+    zip(weights["major_category"], weights["preventability_confidence"])
+)
+anchor_by_category = dict(
+    zip(weights["major_category"], weights["preventability_anchor"])
+)
+
+
+def format_crime_type(category: str) -> str:
+    """Prefix the category name with a confidence dot for the multiselect."""
+    confidence = confidence_by_category.get(category, "Low")
+    emoji = CONFIDENCE_EMOJI.get(confidence, "⚪")
+    return f"{emoji} {category}"
 
 year_month_pairs = sorted(
     crime_df[["year", "month"]]
@@ -371,7 +426,15 @@ with st.sidebar:
         "Crime type",
         options=crime_types,
         default=crime_types,
-        help="Empty selection counts as all crime types."
+        format_func=format_crime_type,
+        help="🟢/🟡/🔴 dots indicate evidence strength of the preventability "
+             "multiplier (see footer). Empty selection counts as all crime "
+             "types."
+    )
+
+    st.caption(
+        "🟢 High &nbsp;·&nbsp; 🟡 Medium &nbsp;·&nbsp; 🔴 Low confidence "
+        "in preventability multiplier"
     )
 
     selected_tier = st.selectbox(
@@ -448,6 +511,18 @@ with st.sidebar:
         horizontal=True
     )
 
+    severity_basis = st.radio(
+        "Severity basis",
+        options=["Mean CCHI", "Median CCHI"],
+        index=0,
+        horizontal=True,
+        help="CCHI offences vary in severity within a category. Mean "
+             "preserves the Σ count × score identity; median is more "
+             "representative of the typical offence and is robust to the "
+             "long-tailed within-category mix. Affects Severity-weighted "
+             "and Composite map modes."
+    )
+
     classification_mode = st.radio(
         "Map mode",
         options=[
@@ -484,9 +559,11 @@ if selected_borough != "All boroughs":
 
 METRIC_COLUMNS = [
     "crime_count",
-    "severity_weighted",
+    "severity_weighted_mean",
+    "severity_weighted_median",
     "preventability_weighted",
-    "composite_weighted",
+    "composite_weighted_mean",
+    "composite_weighted_median",
 ]
 
 if aggregation_level == "Borough":
@@ -528,19 +605,21 @@ for column in METRIC_COLUMNS:
     map_data[column] = map_data[column].fillna(0)
 
 
+basis_suffix = "mean" if severity_basis == "Mean CCHI" else "median"
+
 METRIC_BY_MODE = {
     "Raw crime count": ("crime_count", "Recorded crime count"),
     "Severity-weighted": (
-        "severity_weighted",
-        "Severity-weighted crime count"
+        f"severity_weighted_{basis_suffix}",
+        f"Severity-weighted crime count ({severity_basis})"
     ),
     "Preventability-filtered": (
         "preventability_weighted",
         "Preventability-weighted crime count"
     ),
     "Composite (severity x preventability)": (
-        "composite_weighted",
-        "Composite (severity x preventability) score"
+        f"composite_weighted_{basis_suffix}",
+        f"Composite severity × preventability ({severity_basis})"
     ),
 }
 
@@ -689,7 +768,43 @@ with right_col:
     st.write(f"**Tier:** {selected_tier}")
     st.write(f"**Borough:** {selected_borough}")
     st.write(f"**Aggregation level:** {aggregation_level}")
+    st.write(f"**Severity basis:** {severity_basis}")
     st.write(f"**Map mode:** {classification_mode}")
+
+    st.markdown(
+        """
+        <div class="panel">
+            <div class="section-title">Selected category sources</div>
+            <p style="color:#6b7280; margin-bottom:0;">
+                Confidence rating and one-line literature anchor per
+                selected crime type. Used to defend the multiplier choice
+                in the dashboard.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    visible_categories = (
+        selected_crime_types if selected_crime_types else crime_types
+    )
+
+    sources_rows = []
+    for category in visible_categories:
+        confidence = confidence_by_category.get(category, "Low")
+        anchor = anchor_by_category.get(category, "(no anchor)")
+        sources_rows.append({
+            "": CONFIDENCE_EMOJI.get(confidence, "⚪"),
+            "Category": category,
+            "Confidence": confidence,
+            "Anchor": anchor,
+        })
+
+    st.dataframe(
+        pd.DataFrame(sources_rows),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 st.markdown("---")
@@ -702,18 +817,40 @@ st.dataframe(
     hide_index=True
 )
 
+st.markdown(
+    f"**Severity weights** come from the Cambridge Crime Harm Index "
+    f"(CCHI) 2020 — currently set to **{severity_basis}** of CCHI scores "
+    f"across each category's offences. Toggle the basis in the sidebar. "
+    f"Both bases are uniform-weighted across CCHI offence definitions "
+    f"(per-offence frequencies aren't published, so the within-category "
+    f"offence mix is treated as uniform). CCHI is defined per offence code "
+    f"while the dataset stores major-category aggregates, so a single "
+    f"category's weight pools offences of different severities — e.g., a "
+    f"\"Violence\" weight pools common assault with more serious offences. "
+    f"Anti-social behaviour is non-notifiable and outside CCHI's scope; "
+    f"its severity is treated as 0 in severity-weighted modes."
+)
+
+st.markdown(
+    "**Preventability multipliers** are anchored in the literature: "
+    "[Braga et al. 2019](https://doi.org/10.4073/csr.2019.3) (Campbell SR "
+    "meta-analysis of hot-spot policing — disorder ES = 0.161, drug crime "
+    "ES = 0.244, violent crime ES = 0.102), "
+    "[Weisburd 2015](https://doi.org/10.1111/1745-9125.12070) (crime "
+    "concentration: 100% of robberies in 2.2% of places, 100% of vehicle "
+    "crime in 2.7%), Weisburd 2021 (MIT Press review of presence vs "
+    "response), and Sherman, Neyroud & Neyroud 2016 (CCHI methodology). "
+    "Each row's one-line citation is shown in the *Selected category "
+    "sources* panel. Confidence (🟢 High / 🟡 Medium / 🔴 Low) reflects "
+    "evidence strength per category — categories flagged 🔴 should be "
+    "interpreted with care."
+)
+
 st.caption(
-    "Severity weights are derived from the Cambridge Crime Harm Index (CCHI) "
-    "2020 update — each weight is the offence-count-weighted mean CCHI score "
-    "(in days of recommended sentence) across all CCHI offences that map to a "
-    "given major_category. Severity-weighted values can therefore be read as "
-    "approximate harm-days. Because CCHI is defined per offence code while the "
-    "underlying dataset only stores 9 major categories, single-category weights "
-    "mix offences of different severity (e.g., \"Violence Against the Person\" "
-    "pools common assault with more serious offences). Preventability "
-    "multipliers are still placeholder values from the expansion spec's first "
-    "pass — sub-question 4 will replace them. Re-run "
-    "`prepare_category_weights.py` after editing either source."
+    "Re-run `prepare_category_weights.py` after editing CCHI mappings or "
+    "preventability values. The script auto-detects whether the current "
+    "raw data is the legacy 9-category MPS taxonomy or the 14-category "
+    "data.police.uk taxonomy and emits a matching weights CSV."
 )
 
 

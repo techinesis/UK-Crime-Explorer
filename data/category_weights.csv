@@ -1,10 +1,10 @@
-major_category,severity_weight,preventability_multiplier,preventability_tier
-Burglary,314.0,0.5,Medium
-Criminal Damage,96.61,0.1,Low
-Drugs,187.45,0.1,Low
-Fraud or Forgery,57.29,0.1,Low
-Other Notifiable Offences,195.93,0.1,Low
-Robbery,365.0,1.0,High
-Sexual Offences,655.07,0.1,Low
-Theft and Handling,20.98,0.5,Medium
-Violence Against the Person,807.6,0.1,Low
+major_category,severity_weight_mean,severity_weight_median,preventability_multiplier,preventability_tier,preventability_confidence,preventability_anchor
+Burglary,314.0,126.0,0.5,Medium,High,Weisburd 2021 (MIT review): +10% presence -> -5 to -6%
+Criminal Damage,96.61,2.0,0.4,Medium,Medium,Vandalism deterrable; Braga 2019 disorder ES = 0.161
+Drugs,187.45,5.0,0.3,Low,Low,Braga 2019 ES = 0.244 (open-air markets); UK transferability uncertain
+Fraud or Forgery,57.29,10.0,0.1,Low,High,Mostly online / non-place-based; not patrol-deterrable
+Other Notifiable Offences,195.93,10.0,0.2,Low,Low,Heterogeneous administrative bucket
+Robbery,365.0,365.0,1.0,High,High,Weisburd 2015: 100% of robberies in 2.2% of places
+Sexual Offences,655.07,365.0,0.1,Low,High,Mostly indoor / domestic; Braga 2019 violent ES = 0.102
+Theft and Handling,20.98,2.0,0.7,Medium,Medium,Public theft visible-presence deterrable; mixed bag
+Violence Against the Person,807.6,19.0,0.1,Low,High,Mostly indoor / domestic; Braga 2019 violent ES = 0.102

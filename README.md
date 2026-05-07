@@ -13,28 +13,27 @@ Built for **TU/e 4CBLW020 — Multidisciplinary Challenge-Based Learning, Group 
 
 Sidebar filters:
 
-- Multi-select crime type (defaults to all 9 Met categories present in the data).
-- Preventability tier filter (`All` / `High` / `Medium` / `Low`).
-- Borough drilldown.
-- Year + month filters, **or** an animated time slider that steps through every
-  month in the dataset (Jan 2008 – Dec 2016) with Play / Pause / Reset.
-- Aggregation level toggle: **LSOA** (≈4,800 polygons), **Ward** (≈625), or **Borough** (33). Ward and borough aggregations sum the underlying LSOA crime counts.
+- **Multi-select crime type** with a confidence emoji prefix (🟢 High / 🟡 Medium / 🔴 Low) reflecting evidence strength of each category's preventability multiplier. Categories flagged 🔴 should be interpreted with care.
+- **Preventability tier** filter (`All` / `High` / `Medium` / `Low`).
+- **Borough** drilldown.
+- **Year + month** filters, **or** an animated time slider that steps through every month in the dataset (Jan 2008 – Dec 2016) with Play / Pause / Reset.
+- **Aggregation level** toggle: **LSOA** (≈4,800 polygons), **Ward** (≈625), or **Borough** (33). Ward and borough aggregations sum the underlying LSOA crime counts.
+- **Severity basis** radio (`Mean CCHI` / `Median CCHI`, default Mean). CCHI offences vary widely in severity inside a category — Mean preserves total harm-days, Median is robust to long-tailed offence mixes. The toggle changes both Severity-weighted and Composite map modes.
 
 Map modes (each rescales the choropleth):
 
 - **Raw crime count** — recorded crimes in the current selection.
 - **Crime share within selected data** — percent of the filtered total.
-- **Severity-weighted** — `crime_count × CCHI score`. Values are approximate
-  harm-days (CCHI uses days of recommended sentence as the unit).
+- **Severity-weighted** — `crime_count × CCHI score (mean or median)`. Values are approximate harm-days (CCHI uses days of recommended sentence as the unit).
 - **Preventability-filtered** — `crime_count × preventability_multiplier`.
-- **Composite** — severity × preventability together. The headline demand
-  signal for patrol-allocation analysis.
+- **Composite** — severity × preventability together. The headline demand signal for patrol-allocation analysis.
 
 Side panels:
 
-- Top 10 LSOAs / boroughs (depends on aggregation level).
-- Current-selection recap so you can sanity-check the filters.
-- Borough summary table at the bottom.
+- **Top 10 LSOAs / boroughs** (depends on aggregation level).
+- **Current selection** recap so you can sanity-check the filters (now also shows the active severity basis).
+- **Selected category sources** — confidence rating + one-line literature anchor per selected crime type, so you can defend any number on the map.
+- **Borough summary** table at the bottom.
 
 ---
 
@@ -104,16 +103,33 @@ To stop the server, press `Ctrl+C` in the terminal.
 ## Re-deriving severity / preventability weights
 
 `data/category_weights.csv` is committed and the dashboard reads it at startup.
+It always has **7 columns**:
+
+```
+major_category,
+severity_weight_mean, severity_weight_median,
+preventability_multiplier, preventability_tier,
+preventability_confidence, preventability_anchor
+```
+
+`prepare_category_weights.py` is **hybrid** — it auto-detects whether the
+active `data/london_crime_by_lsoa.csv` uses the legacy 9-category MPS taxonomy
+or the modern 14-category data.police.uk taxonomy and emits a matching CSV
+(9 rows or 14 rows) with the same column schema either way.
+
 **Do not hand-edit the CSV** — change the source-of-truth dictionaries in
 `prepare_category_weights.py`:
 
-- `CATEGORY_TO_CCHI_GROUPS` — which CCHI 2020 `GROUP` value(s) feed each of the
-  9 user `major_category` labels. Severity is the **offence-count-weighted
-  mean CCHI score** across all matched offences (in days of recommended
-  sentence, per CCHI's definition).
-- `PREVENTABILITY_DEFAULTS` — `(tier, multiplier)` per major_category. These
-  are placeholder values from the project's first-pass mapping. Sub-question 4
-  will replace them once finalized.
+- `CCHI_GROUPS_9` / `CCHI_GROUPS_14` — which CCHI 2020 `GROUP` value(s) feed
+  each `major_category` label in each schema. The script computes both the
+  **mean** and the **median** CCHI score across matched offences (uniform
+  weights — CCHI doesn't publish per-offence frequencies).
+- `PREVENTABILITY_9` / `PREVENTABILITY_14` — `(multiplier, confidence, anchor)`
+  per category. The tier (`High` / `Medium` / `Low`) is **derived from the
+  multiplier at write time**, so changing a multiplier auto-updates the tier.
+  Anchors are one-line literature citations (Braga 2019, Weisburd 2015,
+  Sherman/Neyroud 2016, etc.) shown in the dashboard's *Selected category
+  sources* panel.
 
 Then re-run:
 
@@ -121,7 +137,8 @@ Then re-run:
 python prepare_category_weights.py
 ```
 
-Restart Streamlit afterwards to clear the `@st.cache_data` cache.
+Restart Streamlit afterwards (or bump `LOAD_DATA_CACHE_VERSION` in `app.py`)
+to clear the `@st.cache_data` cache.
 
 ---
 
@@ -162,21 +179,38 @@ Restart Streamlit afterwards to clear the `@st.cache_data` cache.
 - **Severity weights.** *Cambridge Crime Harm Index 2020 Update*, produced by
   the Cambridge Centre for Evidence-Based Policing. Each offence's CCHI score
   is the recommended starting-point sentence in days, per the England and
-  Wales sentencing guidelines current as of 2020-10-06.
-- **Preventability tiers.** Project first-pass mapping (Robbery → high;
-  Burglary, Theft → medium; everything else → low). Will be replaced by the
-  formal categorisation from research sub-question 4.
+  Wales sentencing guidelines current as of 2020-10-06. The dashboard exposes
+  both the mean and the median CCHI score per category and lets you toggle
+  which one is used at display time.
+- **Preventability multipliers.** Anchored in the literature: Braga, Turchan,
+  Papachristos & Hureau (2019) Campbell SR meta-analysis of hot-spot policing
+  (disorder ES = 0.161, drug crime ES = 0.244, violent crime ES = 0.102);
+  Weisburd (2015) on crime concentration in micro-places (e.g., 100% of
+  robberies recorded in 2.2% of places); Weisburd (2021) MIT Press review of
+  presence vs response; Sherman, Neyroud & Neyroud (2016) for CCHI
+  methodology. Each row's one-line citation lives in
+  `data/category_weights.csv:preventability_anchor` and is surfaced in the
+  *Selected category sources* panel.
 
 ---
 
 ## Known limitations & gotchas
 
-- **Major-category granularity.** The 2008–2016 Met dataset uses 9
-  major categories (older taxonomy). CCHI is defined per offence code, so
-  every category-level severity weight averages over a heterogeneous mix
-  (`Violence Against the Person` lumps common assault with murder; mean = 808
-  days, median = 19 days). The dashboard currently uses the mean for
-  total-harm conservation; the right summary statistic is an open question.
+- **Major-category granularity.** The 2008–2016 Met dataset uses 9 major
+  categories (older taxonomy); the modern data.police.uk schema has 14.
+  `prepare_category_weights.py` is hybrid — drop in a 14-category CSV at
+  `data/london_crime_by_lsoa.csv` and re-run, no other code changes needed.
+  CCHI is defined per offence code, so every category-level severity weight
+  averages over a heterogeneous mix (`Violence Against the Person` lumps
+  common assault with murder; mean = 808 days, median = 19 days). The
+  sidebar `Severity basis` toggle (Mean / Median) lets you flip between
+  total-harm conservation (Mean) and a typical-offence view (Median); they
+  produce visibly different rankings, so always state the basis you used
+  when sharing screenshots.
+- **Anti-social behaviour has no CCHI severity.** ASB is non-notifiable and
+  outside CCHI's scope. In the 14-schema, the `Anti-social behaviour` row
+  has `NaN` severity (the app coerces it to 0 in severity-weighted modes
+  but keeps the category visible in raw-count and preventability modes).
 - **Day-of-week and sub-monthly patterns** are not recoverable — they were
   anonymised at source by data.police.uk before the dataset was published.
 - **Animation frame rate** is bounded by Folium's render time on the
