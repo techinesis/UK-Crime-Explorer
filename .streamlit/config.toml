@@ -1,3 +1,10 @@
+[server]
+# Lets the app serve files from a static/ directory at /app/static/<path>.
+# Used by the Round 3 architecture: the colored per-filter GeoJSON files
+# under static/colored/*.geojson are loaded by pydeck via URL so the 10MB
+# geometry payload no longer ships through the WebSocket.
+enableStaticServing = true
+
 [theme]
 # The dashboard is designed dark-mode-first. Pinning `base = "dark"` makes
 # Streamlit's built-in components (markdown, dataframe, captions, inputs,

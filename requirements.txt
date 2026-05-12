@@ -5,6 +5,8 @@ streamlit
 streamlit-folium
 folium
 branca
+pydeck>=0.9
+matplotlib
 mapclassify
 pyarrow
 openpyxl

@@ -93,8 +93,10 @@ streamlit run app.py
 ```
 
 Streamlit will open `http://localhost:8501` in your browser. The first load
-takes ~10–15 seconds because `load_data()` reads the 6.4M-row aggregated CSV
-and both boundary GeoJSONs. After that, filter changes are near-instant.
+takes ~10–15 seconds because `load_data()` reads the ~4M-row aggregated CSV
+and the LSOA, borough, and ward boundary GeoJSONs (plus pre-bakes the GeoJSON
+dict used by the pydeck rendering path). After that, repeat filter combinations
+are near-instant; fresh combinations take a few hundred milliseconds.
 
 To stop the server, press `Ctrl+C` in the terminal.
 
@@ -145,24 +147,27 @@ to clear the `@st.cache_data` cache.
 ## Repository layout
 
 ```
-4CBLW020-Group-3/
-├── app.py                          # Streamlit dashboard (the main entry point)
-├── prepare_interactive_data.py     # ETL: shapefiles + raw CSV → outputs/
-├── prepare_category_weights.py     # Derives data/category_weights.csv from CCHI
-├── requirements.txt
-├── CLAUDE.md                       # Architecture notes for AI-assisted dev
-├── data/
-│   ├── london_crime_by_lsoa.csv    # Raw Met Police data (gitignored — fetch from Kaggle)
-│   ├── cchi2020dataxls.xlsx        # CCHI 2020 update (committed)
-│   ├── category_weights.csv        # Derived severity + preventability lookup (committed)
-│   └── statistical-gis-boundaries-london/
-│       └── ESRI/                   # LSOA, ward, and borough shapefiles (committed)
-└── outputs/
-    ├── london_lsoa_boundaries_clean.geojson      # Committed (~4 MB)
-    ├── london_borough_boundaries_clean.geojson   # Committed (~150 KB)
-    ├── london_ward_boundaries_clean.geojson      # Committed (~750 KB)
-    ├── lsoa_to_ward.csv                          # Committed; LSOA → ward map
-    └── crime_aggregated_for_app.csv              # Gitignored — regenerate via ETL
+CBL Repo/
+├── CLAUDE.md                       # Architecture notes for AI-assisted dev (workspace root)
+└── 4CBLW020-Group-3/
+    ├── app.py                          # Streamlit dashboard (the main entry point)
+    ├── prepare_interactive_data.py     # ETL: shapefiles + raw CSV → outputs/
+    ├── prepare_category_weights.py     # Derives data/category_weights.csv from CCHI
+    ├── requirements.txt
+    ├── .streamlit/config.toml          # Dark theme + enableStaticServing for URL-based geometry
+    ├── static/colored/                 # Runtime cache of colored GeoJSON files (gitignored)
+    ├── data/
+    │   ├── london_crime_by_lsoa.csv    # Raw Met Police data (gitignored — fetch from Kaggle)
+    │   ├── cchi2020dataxls.xlsx        # CCHI 2020 update (committed)
+    │   ├── category_weights.csv        # Derived severity + preventability lookup (committed)
+    │   └── statistical-gis-boundaries-london/
+    │       └── ESRI/                   # LSOA, ward, and borough shapefiles (committed)
+    └── outputs/
+        ├── london_lsoa_boundaries_clean.geojson      # Committed (~4 MB)
+        ├── london_borough_boundaries_clean.geojson   # Committed (~150 KB)
+        ├── london_ward_boundaries_clean.geojson      # Committed (~750 KB)
+        ├── lsoa_to_ward.csv                          # Committed; LSOA → ward map
+        └── crime_aggregated_for_app.csv              # Gitignored — regenerate via ETL
 ```
 
 ---
@@ -213,9 +218,10 @@ to clear the `@st.cache_data` cache.
   but keeps the category visible in raw-count and preventability modes).
 - **Day-of-week and sub-monthly patterns** are not recoverable — they were
   anonymised at source by data.police.uk before the dataset was published.
-- **Animation frame rate** is bounded by Folium's render time on the
-  ~5,000-LSOA choropleth (~0.5 fps in LSOA mode). It is noticeably faster in
-  Borough mode (33 polygons).
+- **Animation frame rate** with the default pydeck engine is GPU-bound and
+  hits 30+ fps even in LSOA mode (4,879 polygons). If you flip the sidebar
+  "New map engine (beta)" toggle off, the Folium fallback runs at ~0.5 fps
+  in LSOA mode and is noticeably faster in Borough mode (33 polygons).
 - **Port 8501 zombies.** On Windows, killing a Streamlit shell wrapper does
   not always propagate to the underlying Python process. If a restart seems
   to ignore your changes, run `netstat -ano | findstr :8501` and
