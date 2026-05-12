@@ -42,13 +42,9 @@ Side panels:
 - **Python 3.12.** Do **not** use 3.14 — `numpy==1.26.4` (pinned for the
   geopandas/pandas combo this project uses) has no prebuilt wheel for 3.14
   and pip will fail to compile it from source on Windows.
-- **The raw Kaggle CSV** — `london_crime_by_lsoa.csv` from the public dataset
-  *London Crime Data, 2008–2016* (`jboysen/london-crime` on Kaggle). It is
-  gitignored because of size, so a fresh clone does **not** include it.
-  Download it manually and drop it at `data/london_crime_by_lsoa.csv`.
 
 Everything else (the LSOA and borough shapefiles, the CCHI 2020 spreadsheet,
-`category_weights.csv`, and the cleaned boundary GeoJSONs) is already in the
+`data/category_weights.csv`, and the cleaned boundary GeoJSONs) is already in the
 repo.
 
 ---
@@ -68,13 +64,7 @@ py -3.12 -m venv .venv
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Place the raw Kaggle CSV at data/london_crime_by_lsoa.csv
-#    (Download from https://www.kaggle.com/datasets/jboysen/london-crime)
-
-# 5. One-time ETL: build the aggregated crime CSV and the cleaned boundary GeoJSONs
-python prepare_interactive_data.py        # ~1–3 minutes; prints "ok" when done
-
-# 6. (Optional) Re-derive severity weights from the CCHI 2020 spreadsheet
+# 4. (Optional) Re-derive severity weights from the CCHI 2020 spreadsheet
 python prepare_category_weights.py        # already run; commit ships the output
 ```
 
@@ -93,9 +83,8 @@ streamlit run app.py
 ```
 
 Streamlit will open `http://localhost:8501` in your browser. The first load
-takes ~10–15 seconds because `load_data()` reads the ~4M-row aggregated CSV
-and the LSOA, borough, and ward boundary GeoJSONs (plus pre-bakes the GeoJSON
-dict used by the pydeck rendering path). After that, repeat filter combinations
+takes a bit longer as the API module may need to fetch extra data or grab the
+Kaggle dataset if you do not have it yet. After that, repeat filter combinations
 are near-instant; fresh combinations take a few hundred milliseconds.
 
 To stop the server, press `Ctrl+C` in the terminal.
@@ -114,13 +103,13 @@ preventability_multiplier, preventability_tier,
 preventability_confidence, preventability_anchor
 ```
 
-`prepare_category_weights.py` is **hybrid** — it auto-detects whether the
-active `data/london_crime_by_lsoa.csv` uses the legacy 9-category MPS taxonomy
+`scripts/prepare_category_weights.py` is **hybrid** — it auto-detects whether the
+active `.cache/crime-data/london_crime_by_lsoa.csv` uses the legacy 9-category MPS taxonomy
 or the modern 14-category data.police.uk taxonomy and emits a matching CSV
 (9 rows or 14 rows) with the same column schema either way.
 
 **Do not hand-edit the CSV** — change the source-of-truth dictionaries in
-`prepare_category_weights.py`:
+`scripts/prepare_category_weights.py`:
 
 - `CCHI_GROUPS_9` / `CCHI_GROUPS_14` — which CCHI 2020 `GROUP` value(s) feed
   each `major_category` label in each schema. The script computes both the
@@ -147,27 +136,24 @@ to clear the `@st.cache_data` cache.
 ## Repository layout
 
 ```
-CBL Repo/
-├── CLAUDE.md                       # Architecture notes for AI-assisted dev (workspace root)
-└── 4CBLW020-Group-3/
-    ├── app.py                          # Streamlit dashboard (the main entry point)
-    ├── prepare_interactive_data.py     # ETL: shapefiles + raw CSV → outputs/
-    ├── prepare_category_weights.py     # Derives data/category_weights.csv from CCHI
-    ├── requirements.txt
-    ├── .streamlit/config.toml          # Dark theme + enableStaticServing for URL-based geometry
-    ├── static/colored/                 # Runtime cache of colored GeoJSON files (gitignored)
-    ├── data/
-    │   ├── london_crime_by_lsoa.csv    # Raw Met Police data (gitignored — fetch from Kaggle)
-    │   ├── cchi2020dataxls.xlsx        # CCHI 2020 update (committed)
-    │   ├── category_weights.csv        # Derived severity + preventability lookup (committed)
-    │   └── statistical-gis-boundaries-london/
-    │       └── ESRI/                   # LSOA, ward, and borough shapefiles (committed)
-    └── outputs/
-        ├── london_lsoa_boundaries_clean.geojson      # Committed (~4 MB)
-        ├── london_borough_boundaries_clean.geojson   # Committed (~150 KB)
-        ├── london_ward_boundaries_clean.geojson      # Committed (~750 KB)
-        ├── lsoa_to_ward.csv                          # Committed; LSOA → ward map
-        └── crime_aggregated_for_app.csv              # Gitignored — regenerate via ETL
+4CBLW020-Group-3/
+├── app.py                          # Streamlit dashboard (the main entry point)
+├── requirements.txt
+├── .streamlit/config.toml          # Dark theme + enableStaticServing for URL-based geometry
+├── static/colored/                 # Runtime cache of colored GeoJSON files (gitignored)
+├── scripts/
+│   ├── prepare_interactive_data.py # ETL: shapefiles → data/
+│   └── prepare_category_weights.py # Derives data/category_weights.csv from CCHI
+├── .cache/                         # Application data cache
+└── data/
+    ├── london_lsoa_boundaries_clean.geojson      # Committed (~4 MB)
+    ├── london_borough_boundaries_clean.geojson   # Committed (~150 KB)
+    ├── london_ward_boundaries_clean.geojson      # Committed (~750 KB)
+    ├── lsoa_to_ward.csv                          # Committed; LSOA → ward map
+    ├── cchi2020dataxls.xlsx        # CCHI 2020 update (committed)
+    ├── category_weights.csv        # Derived severity + preventability lookup (committed)
+    └── statistical-gis-boundaries-london/
+        └── ESRI/                   # LSOA, ward, and borough shapefiles (committed)
 ```
 
 ---

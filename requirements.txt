@@ -1,6 +1,7 @@
 numpy==1.26.4
 pandas
 geopandas
+shapely
 streamlit
 streamlit-folium
 folium
@@ -10,3 +11,4 @@ matplotlib
 mapclassify
 pyarrow
 openpyxl
+tqdm
