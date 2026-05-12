@@ -1099,11 +1099,8 @@ else:
     active_units_label = "LSOAs with crimes"
     average_label = "Average per LSOA"
 
-top_units = map_data[top_units_columns]
-
-
-top_lsoas = (
-    map_data[["lsoa_code", "lsoa_name", "borough", "crime_count"]]
+top_units = (
+    map_data[top_units_columns]
     .sort_values("crime_count", ascending=False)
     .head(10)
 )
