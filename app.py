@@ -295,7 +295,21 @@ def load_data(cache_version: int = LOAD_DATA_CACHE_VERSION):
         st.stop()
     """
 
-    crime_df = pd.read_csv(CRIME_PATH)
+    crime_df = Client().street_crimes_timerange(
+        2023,
+        None,
+        exclude_year_month=[
+            "2023-01",
+            "2023-02",
+            "2023-03",
+            "2023-04",
+            "2023-05",
+            "2024-09",
+            "2024-10",
+            "2025-03",
+            "2025-11",
+        ],
+    )
     boundaries = gpd.read_file(BOUNDARIES_PATH)
     borough_boundaries = gpd.read_file(BOROUGH_BOUNDARIES_PATH)
     ward_boundaries = gpd.read_file(WARD_BOUNDARIES_PATH)

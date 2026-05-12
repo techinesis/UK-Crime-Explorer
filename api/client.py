@@ -1,16 +1,21 @@
+import requests
 from requests.exceptions import HTTPError
 from typing import Optional
 from shapely.geometry import Point
 import time
 from datetime import datetime
-from requests import get
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import tarfile
+import zipfile
+from tqdm import tqdm
+from os import remove
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+# A file that if created indicates that the file data CRIME_DATA_PATH has been extracted
+CRIME_DATA_EXTRACTED_PATH = Path(".cache/crime-data/extracted")
 CRIME_CACHE_PATH = Path(".cache/crime-data")
 LSOA_CACHE_PATH = Path(".cache/london_lsoa_boundaries.geojson")
 
@@ -81,12 +86,120 @@ def split_poly(poly: str, splits: int = 2) -> list[str]:
 
 
 def prepare_premade_crime_data():
+    if not CRIME_DATA_PATH.exists():
+        return
+
     print("[LOG] Extracting existing crime data")
 
     CRIME_CACHE_PATH.mkdir(parents=True, exist_ok=True)
 
     crime_data = tarfile.open(CRIME_DATA_PATH, "r:xz")
     crime_data.extractall(CRIME_CACHE_PATH.parent)
+    crime_data.close()
+
+    with CRIME_DATA_EXTRACTED_PATH.open("w") as f:
+        f.write("ok\n")
+
+
+def prepare_kaggle_crime_data():
+    csv_filepath = CRIME_CACHE_PATH.joinpath("london_crime_by_lsoa.csv")
+    zip_filepath = CRIME_CACHE_PATH.joinpath("kaggle-london-data.zip")
+
+    def unzip_data():
+        with zipfile.ZipFile(zip_filepath) as z:
+            z.extractall(CRIME_CACHE_PATH)
+
+    def load_csv():
+        df = pd.read_csv(CRIME_CACHE_PATH.joinpath("london_crime_by_lsoa.csv")).rename(
+            columns={"value": "crime_count", "major_category": "category"}
+        )
+        crime_mapping = {
+            # Violent Crime & Sexual Offenses
+            "Assault with Injury": "violent-crime",
+            "Common Assault": "violent-crime",
+            "Murder": "violent-crime",
+            "Other violence": "violent-crime",
+            "Wounding/GBH": "violent-crime",
+            "Harassment": "violent-crime",
+            "Rape": "violent-crime",
+            "Other Sexual": "violent-crime",
+            # Property Crimes
+            "Burglary in Other Buildings": "burglary",
+            "Burglary in a Dwelling": "burglary",
+            "Business Property": "robbery",
+            "Personal Property": "robbery",
+            # Theft & Shoplifting
+            "Theft From Shops": "shoplifting",
+            "Theft/Taking of Pedal Cycle": "bicycle-theft",
+            "Other Theft Person": "theft-from-the-person",
+            "Other Theft": "other-theft",
+            "Handling Stolen Goods": "other-theft",
+            # Vehicle Crime
+            "Motor Vehicle Interference & Tampering": "vehicle-crime",
+            "Theft From Motor Vehicle": "vehicle-crime",
+            "Theft/Taking Of Motor Vehicle": "vehicle-crime",
+            # Criminal Damage
+            "Criminal Damage To Dwelling": "criminal-damage-arson",
+            "Criminal Damage To Motor Vehicle": "criminal-damage-arson",
+            "Criminal Damage To Other Building": "criminal-damage-arson",
+            "Other Criminal Damage": "criminal-damage-arson",
+            # Drugs & Weapons
+            "Drug Trafficking": "drugs",
+            "Other Drugs": "drugs",
+            "Possession Of Drugs": "drugs",
+            "Offensive Weapon": "possession-of-weapons",
+            "Going Equipped": "other-crime",
+            # Others
+            "Other Fraud & Forgery": "other-crime",
+            "Other Notifiable": "other-crime",
+            "Counted per Victim": "other-crime",
+        }
+        df["category"] = df["category"].map(crime_mapping).fillna("other-crime")
+        return df.groupby(["lsoa_code", "borough", "category", "year", "month"], as_index=False)[
+            "crime_count"
+        ].sum()
+
+    if csv_filepath.exists():
+        return load_csv()
+
+    if zip_filepath.exists():
+        # For whatever reason we have the zip but not the csv
+        unzip_data()
+        df = load_csv()
+        remove(zip_filepath)
+        return df
+
+    zip_filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    def download_file(url, filename):
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+
+            total_size = int(r.headers.get("content-length", 0))
+
+            with open(filename, "wb") as f:
+                with tqdm(
+                    total=total_size,
+                    unit="B",
+                    unit_scale=True,
+                    desc="Kaggle",
+                    initial=0,
+                    ascii=True,
+                ) as pbar:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        pbar.update(len(chunk))
+
+    download_file(
+        "https://www.kaggle.com/api/v1/datasets/download/jboysen/london-crime", zip_filepath
+    )
+
+    unzip_data()
+
+    df = load_csv()
+    remove(zip_filepath)
+
+    return df
 
 
 def load_london_lsoas() -> gpd.GeoDataFrame:
@@ -109,6 +222,7 @@ def load_london_lsoas() -> gpd.GeoDataFrame:
     # Increase this slightly if the app is still slow, for example 0.0008
     gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.0005, preserve_topology=True)
 
+    LSOA_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(LSOA_CACHE_PATH, driver="GeoJSON")
 
     return gdf
@@ -185,34 +299,44 @@ class Client:
         """
         year, month = _given_date_or_now(year, month)
 
-        r = get(self.__url("crime-categories"), params={"year": year, "month": month})
+        r = requests.get(self.__url("crime-categories"), params={"year": year, "month": month})
         r.raise_for_status()
 
         return [CrimeCategory(c["url"], c["name"]) for c in r.json()]
 
+    def last_updated(self) -> str:
+        r = requests.get(self.__url("crime-last-updated"))
+        r.raise_for_status()
+
+        return r.json()["date"]
+
     def street_crimes_in_poly(
         self, poly: str, category: str, date: str, enriched: bool = True
     ) -> list[dict]:
-        params = {"poly": poly, "date": date}
+        try:
+            params = {"poly": poly, "date": date}
 
-        r = get(
-            self.__url(f"crimes-street/{category}"),
-            params=params,
-            timeout=60,
-        )
+            r = requests.get(
+                self.__url(f"crimes-street/{category}"),
+                params=params,
+                timeout=60,
+            )
 
-        if r.status_code == 503:
-            results = []
-            print("[DBG] Got 503, splitting polygon")
-            for sub_poly in split_poly(poly, splits=2):
-                try:
-                    results.extend(self.street_crimes_in_poly(sub_poly, category, date))
-                except HTTPError:
-                    pass
-                time.sleep(1)
-            return results
+            if r.status_code == 503:
+                results = []
+                print("[DBG] Got 503, splitting polygon")
+                for sub_poly in split_poly(poly, splits=2):
+                    try:
+                        results.extend(self.street_crimes_in_poly(sub_poly, category, date))
+                    except HTTPError:
+                        pass
+                    time.sleep(1)
+                return results
 
-        r.raise_for_status()
+            r.raise_for_status()
+        except HTTPError:
+            return []
+
         data = r.json()
         return data if not enriched else self._enrich_with_lsoa(data)
 
@@ -240,8 +364,8 @@ class Client:
                 executor.submit(_fetch_poly, poly, category, date): poly
                 for poly in self.__london_polys
             }
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Poly"):
-                for c in tqdm(future.result(), desc="Crime"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Poly", ascii=True):
+                for c in tqdm(future.result(), desc="Crime", ascii=True):
                     _add_crime_if_new(c)
 
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -283,22 +407,36 @@ class Client:
     def street_crimes_timerange(
         self,
         start_year: int,
-        end_year: int,
+        end_year: Optional[int] = None,
         exclude_years: Optional[list[int]] = None,
         exclude_months: Optional[list[int]] = None,
         exclude_year_month: Optional[list[str]] = None,
         category: str = "all-crime",
     ) -> pd.DataFrame:
-        if not CRIME_CACHE_PATH.exists() or not any(CRIME_CACHE_PATH.iterdir()):
-            prepare_premade_crime_data()
-
-        assert start_year <= end_year
-
         exclude_years = exclude_years if exclude_years is not None else []
         exclude_months = exclude_months if exclude_months is not None else []
         exclude_year_month = exclude_year_month if exclude_year_month is not None else []
 
-        dfs = []
+        try:
+            kaggle_df = prepare_kaggle_crime_data()
+            if not CRIME_DATA_EXTRACTED_PATH.exists():
+                prepare_premade_crime_data()
+        except KeyboardInterrupt:
+            return pd.DataFrame()
+        except HTTPError as e:
+            print(f"HTTP Request failed: {e}")
+
+        if end_year is None:
+            last_updated = self.last_updated()
+            last_year, last_month, _ = last_updated.split("-")
+            for no_update_month in range(int(last_month), 12 + 1):
+                # All months after the latest updated will be empty and should be excluded
+                exclude_year_month.append(f"{last_year:04}-{no_update_month:02}")
+            end_year = int(last_year)
+
+        assert start_year <= end_year
+
+        dfs = [kaggle_df]
 
         for year in range(start_year, end_year + 1):
             if year in exclude_years:
@@ -319,4 +457,12 @@ class Client:
                     print(f"[ERR] Failed to fetch data for month {year_month}")
                     continue
 
-        return pd.concat(dfs, axis=0, ignore_index=True)
+        df = pd.concat(dfs, axis=0, ignore_index=True)
+        return (
+            df
+            .groupby(
+                ["lsoa_code", "lsoa_name", "borough", "category", "year", "month"], dropna=False
+            )["crime_count"]
+            .sum()
+            .reset_index()
+        )
