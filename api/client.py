@@ -22,6 +22,64 @@ LSOA_CACHE_PATH = Path(".cache/london_lsoa_boundaries.geojson")
 LSOA_DATA_PATH = Path("data/statistical-gis-boundaries-london/ESRI/LSOA_2011_London_gen_MHW.shp")
 CRIME_DATA_PATH = Path("data/crime-data.tar.xz")
 
+SCHEMA_14_MARKER_MAPPING = {
+    "anti-social-behaviour": "Anti-social behaviour",
+    "bicycle-theft": "Bicycle theft",
+    "burglary": "Burglary",
+    "criminal-damage-arson": "Criminal damage and arson",
+    "drugs": "Drugs",
+    "other-crime": "Other crime",
+    "other-theft": "Other theft",
+    "possession-of-weapons": "Posession of weapons",
+    "public-order": "Public order",
+    "robbery": "Robber",
+    "shoplifting": "Shoplifting",
+    "theft-from-the-person": "Theft from the person",
+    "vehicle-crime": "Vehicle crime",
+    "violent-crime": "Violence and sexual offences",
+ }
+
+SCHEMA_9_TO_14 = {
+    # Violent Crime & Sexual Offenses
+    "Assault with Injury": "Violence and sexual offences",
+    "Common Assault": "Violence and sexual offences",
+    "Murder": "Violence and sexual offences",
+    "Other violence": "Violence and sexual offences",
+    "Wounding/GBH": "Violence and sexual offences",
+    "Harassment": "Violence and sexual offences",
+    "Rape": "Violence and sexual offences",
+    "Other Sexual": "Violence and sexual offences",
+    # Property Crimes
+    "Burglary in Other Buildings": "Burglary",
+    "Burglary in a Dwelling": "Burglary",
+    "Business Property": "Robbery",
+    "Personal Property": "Robbery",
+    # Theft & Shoplifting
+    "Theft From Shops": "Shoplifting",
+    "Theft/Taking of Pedal Cycle": "Bicycle theft",
+    "Other Theft Person": "Theft from the person",
+    "Other Theft": "Other theft",
+    "Handling Stolen Goods": "Other theft",
+    # Vehicle Crime
+    "Motor Vehicle Interference & Tampering": "Vehicle crime",
+    "Theft From Motor Vehicle": "Vehicle crime",
+    "Theft/Taking Of Motor Vehicle": "Vehicle crime",
+    # Criminal Damage
+    "Criminal Damage To Dwelling": "Criminal damage and arson",
+    "Criminal Damage To Motor Vehicle": "Criminal damage and arson",
+    "Criminal Damage To Other Building": "Criminal damage and arson",
+    "Other Criminal Damage": "Criminal damage and arson",
+    # Drugs & Weapons
+    "Drug Trafficking": "Drugs",
+    "Other Drugs": "Drugs",
+    "Possession Of Drugs": "Drugs",
+    "Offensive Weapon": "Possession of weapons",
+    "Going Equipped": "Other crime",
+    # Others
+    "Other Fraud & Forgery": "Other crime",
+    "Other Notifiable": "Other crime",
+    "Counted per Victim": "Other crime",
+    }
 
 def __now_year_month() -> tuple[int, int]:
     now = datetime.now()
@@ -113,48 +171,7 @@ def prepare_kaggle_crime_data():
         df = pd.read_csv(CRIME_CACHE_PATH.joinpath("london_crime_by_lsoa.csv")).rename(
             columns={"value": "crime_count", "major_category": "category"}
         )
-        crime_mapping = {
-            # Violent Crime & Sexual Offenses
-            "Assault with Injury": "violent-crime",
-            "Common Assault": "violent-crime",
-            "Murder": "violent-crime",
-            "Other violence": "violent-crime",
-            "Wounding/GBH": "violent-crime",
-            "Harassment": "violent-crime",
-            "Rape": "violent-crime",
-            "Other Sexual": "violent-crime",
-            # Property Crimes
-            "Burglary in Other Buildings": "burglary",
-            "Burglary in a Dwelling": "burglary",
-            "Business Property": "robbery",
-            "Personal Property": "robbery",
-            # Theft & Shoplifting
-            "Theft From Shops": "shoplifting",
-            "Theft/Taking of Pedal Cycle": "bicycle-theft",
-            "Other Theft Person": "theft-from-the-person",
-            "Other Theft": "other-theft",
-            "Handling Stolen Goods": "other-theft",
-            # Vehicle Crime
-            "Motor Vehicle Interference & Tampering": "vehicle-crime",
-            "Theft From Motor Vehicle": "vehicle-crime",
-            "Theft/Taking Of Motor Vehicle": "vehicle-crime",
-            # Criminal Damage
-            "Criminal Damage To Dwelling": "criminal-damage-arson",
-            "Criminal Damage To Motor Vehicle": "criminal-damage-arson",
-            "Criminal Damage To Other Building": "criminal-damage-arson",
-            "Other Criminal Damage": "criminal-damage-arson",
-            # Drugs & Weapons
-            "Drug Trafficking": "drugs",
-            "Other Drugs": "drugs",
-            "Possession Of Drugs": "drugs",
-            "Offensive Weapon": "possession-of-weapons",
-            "Going Equipped": "other-crime",
-            # Others
-            "Other Fraud & Forgery": "other-crime",
-            "Other Notifiable": "other-crime",
-            "Counted per Victim": "other-crime",
-        }
-        df["category"] = df["category"].map(crime_mapping).fillna("other-crime")
+        df["category"] = df["category"].map(SCHEMA_9_TO_14).fillna("other-crime")
         return df.groupby(["lsoa_code", "borough", "category", "year", "month"], as_index=False)[
             "crime_count"
         ].sum()
@@ -375,7 +392,7 @@ class Client:
                 "persistent_id": c.get("persistent_id"),
                 "year": int(c.get("month", "").split("-")[0]),
                 "month": int(c.get("month", "").split("-")[1]),
-                "category": c.get("category"),
+                "category": SCHEMA_14_MARKER_MAPPING[c.get("category", "other-crime")],
                 "location_type": c.get("location_type"),
                 "location_subtype": c.get("location_subtype"),
                 "latitude": c["location"]["latitude"],

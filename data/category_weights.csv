@@ -1,10 +1,15 @@
-major_category,severity_weight_mean,severity_weight_median,preventability_multiplier,preventability_tier,preventability_confidence,preventability_anchor
+category,severity_weight_mean,severity_weight_median,preventability_multiplier,preventability_tier,preventability_confidence,preventability_anchor
+Anti-social behaviour,,,1.0,High,High,Braga 2019 disorder ES = 0.161
+Bicycle theft,27.9,2.0,0.9,High,Medium,UK reductions 19-60%; Weisburd concentration
 Burglary,314.0,126.0,0.5,Medium,High,Weisburd 2021 (MIT review): +10% presence -> -5 to -6%
-Criminal Damage,96.61,2.0,0.4,Medium,Medium,Vandalism deterrable; Braga 2019 disorder ES = 0.161
-Drugs,187.45,5.0,0.3,Low,Low,Braga 2019 ES = 0.244 (open-air markets); UK transferability uncertain
-Fraud or Forgery,57.29,10.0,0.1,Low,High,Mostly online / non-place-based; not patrol-deterrable
-Other Notifiable Offences,195.93,10.0,0.2,Low,Low,Heterogeneous administrative bucket
+Criminal damage and arson,96.61,2.0,0.4,Medium,Medium,Vandalism deterrable; Braga 2019 disorder ES = 0.161
+Drugs,187.45,5.0,0.3,Low,Low,"Braga 2019 ES = 0.244 (open-air markets, not UK records)"
+Other crime,80.19,10.0,0.1,Low,Low,Heterogeneous administrative bucket
+Other theft,27.9,2.0,0.4,Medium,Low,Heterogeneous catch-all; conservative weight
+Possession of weapons,755.18,365.0,0.2,Low,Medium,"Stop-and-search literature, not patrol literature"
+Public order,44.11,5.0,1.0,High,High,Classic disorder-policing target; Braga 2019 ES = 0.161
 Robbery,365.0,365.0,1.0,High,High,Weisburd 2015: 100% of robberies in 2.2% of places
-Sexual Offences,655.07,365.0,0.1,Low,High,Mostly indoor / domestic; Braga 2019 violent ES = 0.102
-Theft and Handling,20.98,2.0,0.7,Medium,Medium,Public theft visible-presence deterrable; mixed bag
-Violence Against the Person,807.6,19.0,0.1,Low,High,Mostly indoor / domestic; Braga 2019 violent ES = 0.102
+Shoplifting,27.9,2.0,0.7,Medium,Medium,Indoor but visible-presence deterrable
+Theft from the person,27.9,2.0,0.7,Medium,Medium,"Public pickpocketing / snatch theft, deterrable"
+Vehicle crime,6.14,5.0,0.9,High,Medium,Weisburd 2015: 100% of vehicle crime in 2.7% of places
+Violence and sexual offences,730.33,182.5,0.1,Low,High,Braga 2019 violent ES = 0.102; mostly indoor / domestic

@@ -327,7 +327,7 @@ def load_data(cache_version: int = LOAD_DATA_CACHE_VERSION):
     # boolean-mask filtering ~3x faster (491ms -> 170ms on a real query).
     # preventability_tier is added after the weights merge below, so it's
     # cast there.
-    for col in ("lsoa_code", "borough", "major_category"):
+    for col in ("lsoa_code", "borough", "category"):
         if col in crime_df.columns:
             crime_df[col] = crime_df[col].astype("category")
 
@@ -339,7 +339,6 @@ def load_data(cache_version: int = LOAD_DATA_CACHE_VERSION):
     borough_boundaries = borough_boundaries.explode(index_parts=False, ignore_index=True)
     ward_boundaries = ward_boundaries.explode(index_parts=False, ignore_index=True)
 
-    crime_df = crime_df.merge(weights, on="major_category", how="left")
     crime_df = crime_df.merge(weights, on="category", how="left")
     crime_df = crime_df.merge(lsoa_to_ward, on="lsoa_code", how="left")
 
@@ -425,7 +424,7 @@ def compute_map_data(
     filtered = _crime_df
 
     if selected_crime_types:
-        filtered = filtered[filtered["major_category"].isin(selected_crime_types)]
+        filtered = filtered[filtered["category"].isin(selected_crime_types)]
 
     if selected_tier != "All tiers":
         filtered = filtered[filtered["preventability_tier"] == selected_tier]
@@ -1046,52 +1045,6 @@ map_data, borough_summary = compute_map_data(
     aggregation_level=aggregation_level,
     cache_version=LOAD_DATA_CACHE_VERSION,
 )
-filtered = crime_df.copy()
-
-if selected_crime_types:
-    filtered = filtered[filtered["category"].isin(selected_crime_types)]
-
-if selected_tier != "All tiers":
-    filtered = filtered[filtered["preventability_tier"] == selected_tier]
-    filtered = filtered[filtered["category"] == selected_crime_type]
-
-if selected_year != "All years":
-    filtered = filtered[filtered["year"] == selected_year]
-
-if selected_months:
-    filtered = filtered[filtered["month"].isin(selected_months)]
-
-if selected_borough != "All boroughs":
-    filtered = filtered[filtered["borough"] == selected_borough]
-
-
-METRIC_COLUMNS = [
-    "crime_count",
-    "severity_weighted_mean",
-    "severity_weighted_median",
-    "preventability_weighted",
-    "composite_weighted_mean",
-    "composite_weighted_median",
-]
-
-if aggregation_level == "Borough":
-    aggregated = filtered.groupby("borough", as_index=False)[METRIC_COLUMNS].sum()
-    map_data = borough_boundaries.merge(aggregated, on="borough", how="left")
-elif aggregation_level == "Ward":
-    aggregated = (
-        filtered
-        .dropna(subset=["ward_code"])
-        .groupby("ward_code", as_index=False)[METRIC_COLUMNS]
-        .sum()
-    )
-    map_data = ward_boundaries.merge(aggregated, on="ward_code", how="left")
-else:
-    aggregated = filtered.groupby("lsoa_code", as_index=False)[METRIC_COLUMNS].sum()
-    map_data = boundaries.merge(aggregated, on="lsoa_code", how="left")
-
-for column in METRIC_COLUMNS:
-    map_data[column] = map_data[column].fillna(0)
-
 
 basis_suffix = "mean" if severity_basis == "Mean CCHI" else "median"
 
@@ -1107,11 +1060,6 @@ METRIC_BY_MODE = {
         f"Composite severity × preventability ({severity_basis})",
     ),
 }
-crime_by_lsoa = filtered.groupby("lsoa_code", as_index=False)["crime_count"].sum()
-
-map_data = boundaries.merge(crime_by_lsoa, on="lsoa_code", how="left")
-
-map_data["crime_count"] = map_data["crime_count"].fillna(0)
 
 if classification_mode == "Crime share within selected data":
     total_selected_crime = map_data["crime_count"].sum()
@@ -1153,9 +1101,6 @@ else:
 
 top_units = map_data[top_units_columns]
 
-
-active_lsoas = int((map_data["crime_count"] > 0).sum())
-average_per_lsoa = round(map_data["crime_count"].mean(), 2)
 
 top_lsoas = (
     map_data[["lsoa_code", "lsoa_name", "borough", "crime_count"]]

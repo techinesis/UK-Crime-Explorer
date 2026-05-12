@@ -7,7 +7,7 @@ the Person", ...) or the modern 14-category data.police.uk taxonomy ("Bicycle
 theft", "Anti-social behaviour", ...) and emits a matching
 ``data/category_weights.csv`` with the same 7-column schema in either case:
 
-    major_category,
+    category,
     severity_weight_mean, severity_weight_median,
     preventability_multiplier, preventability_tier,
     preventability_confidence, preventability_anchor
@@ -50,7 +50,7 @@ import pandas as pd
 
 CCHI_PATH = "data/cchi2020dataxls.xlsx"
 CCHI_SHEET = "CCHI 2020 values sheet"
-CRIME_CSV_PATH = "data/london_crime_by_lsoa.csv"
+CRIME_CSV_PATH = ".cache/crime-data/london_crime_by_lsoa.csv"
 OUTPUT_PATH = "data/category_weights.csv"
 
 
@@ -131,7 +131,6 @@ PREVENTABILITY_14: dict[str, tuple[float, str, str]] = {
     "Violence and sexual offences": (0.1, "High",   "Braga 2019 violent ES = 0.102; mostly indoor / domestic"),
 }
 
-
 # Signature names used to disambiguate schemas. Each set must contain names
 # that are unique to its schema (cannot appear in the other one).
 SCHEMA_9_MARKERS = frozenset({
@@ -155,13 +154,62 @@ SCHEMA_14_MARKERS = frozenset({
 
 
 def detect_schema(crime_csv_path: str) -> str:
-    """Return ``"9"`` or ``"14"`` based on the unique ``major_category``
+    """Return ``"9"`` or ``"14"`` based on the unique ``category``
     values present in ``crime_csv_path``. Reads only the relevant column to
     keep memory/IO bounded on the 13.5M-row legacy CSV.
     """
+    def load_csv():
+        df = pd.read_csv(crime_csv_path, usecols=["major_category"]).rename(
+            columns={"major_category": "category"}
+        )
+        SCHEMA_9_TO_14 = {
+            # Violent Crime & Sexual Offenses
+            "Assault with Injury": "Violence and sexual offences",
+            "Common Assault": "Violence and sexual offences",
+            "Murder": "Violence and sexual offences",
+            "Other violence": "Violence and sexual offences",
+            "Wounding/GBH": "Violence and sexual offences",
+            "Harassment": "Violence and sexual offences",
+            "Rape": "Violence and sexual offences",
+            "Other Sexual": "Violence and sexual offences",
+            # Property Crimes
+            "Burglary in Other Buildings": "Burglary",
+            "Burglary in a Dwelling": "Burglary",
+            "Business Property": "Robbery",
+            "Personal Property": "Robbery",
+            # Theft & Shoplifting
+            "Theft From Shops": "Shoplifting",
+            "Theft/Taking of Pedal Cycle": "Bicycle theft",
+            "Other Theft Person": "Theft from the person",
+            "Other Theft": "Other theft",
+            "Handling Stolen Goods": "Other theft",
+            # Vehicle Crime
+            "Motor Vehicle Interference & Tampering": "Vehicle crime",
+            "Theft From Motor Vehicle": "Vehicle crime",
+            "Theft/Taking Of Motor Vehicle": "Vehicle crime",
+            # Criminal Damage
+            "Criminal Damage To Dwelling": "Criminal damage and arson",
+            "Criminal Damage To Motor Vehicle": "Criminal damage and arson",
+            "Criminal Damage To Other Building": "Criminal damage and arson",
+            "Other Criminal Damage": "Criminal damage and arson",
+            # Drugs & Weapons
+            "Drug Trafficking": "Drugs",
+            "Other Drugs": "Drugs",
+            "Possession Of Drugs": "Drugs",
+            "Offensive Weapon": "Possession of weapons",
+            "Going Equipped": "Other crime",
+            # Others
+            "Other Fraud & Forgery": "Other crime",
+            "Other Notifiable": "Other crime",
+            "Counted per Victim": "Other crime",
+        }
+        df["category"] = df["category"].map(SCHEMA_9_TO_14).fillna("other-crime")
+        return df
+
+    crime_df = load_csv()
+
     cats = set(
-        pd.read_csv(crime_csv_path, usecols=["major_category"])
-        ["major_category"]
+        crime_df["category"]
         .dropna()
         .unique()
     )
@@ -172,7 +220,7 @@ def detect_schema(crime_csv_path: str) -> str:
     if has_9 and not has_14:
         return "9"
     raise ValueError(
-        "Cannot disambiguate schema from major_category values. "
+        "Cannot disambiguate schema from category values. "
         f"Found {len(cats)} unique values: {sorted(cats)}"
     )
 
@@ -220,7 +268,7 @@ def build_rows(
         tier = derive_tier(multiplier)
         rows.append(
             {
-                "major_category": category,
+                "category": category,
                 "severity_weight_mean": mean_val,
                 "severity_weight_median": median_val,
                 "preventability_multiplier": multiplier,
@@ -239,13 +287,6 @@ def build_rows(
 
 
 def main() -> None:
-    if not Path(CRIME_CSV_PATH).exists():
-        raise FileNotFoundError(
-            f"Cannot detect schema — {CRIME_CSV_PATH} is missing. "
-            "The raw crime CSV must be in place before regenerating "
-            "category_weights.csv."
-        )
-
     schema = detect_schema(CRIME_CSV_PATH)
     print(f"Detected schema: {schema}-category")
 
@@ -263,7 +304,7 @@ def main() -> None:
 
     weights = (
         pd.DataFrame(rows)
-        .sort_values("major_category")
+        .sort_values("category")
         .reset_index(drop=True)
     )
     weights.to_csv(OUTPUT_PATH, index=False)
