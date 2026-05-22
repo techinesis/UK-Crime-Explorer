@@ -1,0 +1,7 @@
+# Vercel deploys this repo as a FastAPI project (entrypoint: api/index.py,
+# which exposes `app`). This build hook runs after `pip install` and before
+# deploy: it builds the Vite frontend into the repo-root `public/` directory,
+# which Vercel's FastAPI runtime then serves as static CDN assets (the SPA plus
+# the pre-baked /boundaries/*.json). The FastAPI function handles /api/*.
+[tool.vercel.scripts]
+build = "cd frontend && npm install && npm run build"

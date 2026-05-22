@@ -33,6 +33,8 @@ frontend/dist/
 frontend/.vite/
 # Generated static boundaries (rebuilt from data/*.geojson by prepare-static.mjs)
 frontend/public/boundaries/
+# Vite builds the SPA here (repo-root public/) for Vercel's FastAPI static serving
+/public/
 # Python venvs anywhere in the tree
 backend/.venv/
 # Vercel local
