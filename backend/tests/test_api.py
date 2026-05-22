@@ -4,8 +4,6 @@ These exercise the loaded crime frame, so they are slower than the pure unit
 tests. They confirm the HTTP layer matches the core functions exactly.
 """
 
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -39,21 +37,6 @@ def test_meta_shape(client):
         "name", "preventability_tier", "preventability_confidence", "preventability_anchor"
     }
     assert len(body["boroughs"]) == 33
-
-
-def test_boundaries_ok_and_cached(client):
-    r = client.get("/api/boundaries/lsoa")
-    assert r.status_code == 200
-    assert "max-age" in r.headers.get("cache-control", "")
-    fc = json.loads(r.content)
-    assert fc["type"] == "FeatureCollection"
-    assert len(fc["features"]) > 0
-    props = fc["features"][0]["properties"]
-    assert "lsoa_code" in props
-
-
-def test_boundaries_unknown_level_404(client):
-    assert client.get("/api/boundaries/bogus").status_code == 404
 
 
 def test_weights(client):

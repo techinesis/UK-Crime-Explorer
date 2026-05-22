@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "prepare-static": "node scripts/prepare-static.mjs",
+    "predev": "node scripts/prepare-static.mjs",
+    "prebuild": "node scripts/prepare-static.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

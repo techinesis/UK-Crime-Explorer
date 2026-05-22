@@ -25,11 +25,15 @@ static/colored/*.geojson
 .cache
 
 # --- Full-stack rewrite (React + FastAPI) ---
-# Backend: cached crime DataFrame snapshot (regenerated from the data client)
-data/crime_snapshot.parquet
+# NOTE: data/crime_snapshot.parquet IS committed — it is the production data
+# source on Vercel (the 890 MB raw CSV above is not deployable). It is small (~2 MB).
 # Frontend: node + build artifacts
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+# Generated static boundaries (rebuilt from data/*.geojson by prepare-static.mjs)
+frontend/public/boundaries/
 # Python venvs anywhere in the tree
 backend/.venv/
+# Vercel local
+.vercel/

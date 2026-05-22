@@ -1,9 +1,8 @@
-"""FastAPI app: meta, boundaries, map, and weights endpoints.
+"""FastAPI app: meta, map, and weights endpoints.
 
-The crime DataFrame and boundaries are loaded once at startup and held for the
-process lifetime. /api/map results are memoised on the filter tuple — the
-DataFrame never changes, so a given filter combination always yields the same
-payload.
+The crime DataFrame is loaded once and held for the process lifetime (and reused
+across warm serverless invocations). /api/map results are memoised on the filter
+tuple. Boundary GeoJSON is served as static CDN assets, not by this API.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core import geometry
@@ -87,11 +86,10 @@ def _build_meta() -> MetaResponse:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm the crime frame, boundaries, weights, and meta before serving.
+    # Warm the crime frame, weights, and meta before serving. (Harmless if the
+    # serverless adapter skips lifespan — the lru_caches lazy-load on first use.)
     get_crime_long()
     load_weights()
-    for level in geometry.LEVELS:
-        geometry.get_boundaries_json(level)
     _META_CACHE["meta"] = _build_meta()
     yield
 
@@ -113,24 +111,6 @@ def health() -> dict:
 @app.get("/api/meta", response_model=MetaResponse)
 def meta() -> MetaResponse:
     return _META_CACHE.get("meta") or _build_meta()
-
-
-@app.get("/api/boundaries/{level}")
-def boundaries(level: str, request: Request) -> Response:
-    if level.lower() not in geometry.LEVELS:
-        raise HTTPException(status_code=404, detail=f"unknown level {level!r}")
-    lvl = level.lower()
-    etag = geometry.get_boundaries_etag(lvl)
-    # Revalidate on every load (cheap 304) but always serve fresh geometry after
-    # a regeneration — a content ETag, not a long max-age that would pin stale data.
-    cache_headers = {"ETag": etag, "Cache-Control": "public, max-age=0, must-revalidate"}
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=cache_headers)
-    return Response(
-        content=geometry.get_boundaries_json(lvl),
-        media_type="application/json",
-        headers=cache_headers,
-    )
 
 
 @lru_cache(maxsize=512)

@@ -31,7 +31,9 @@ export async function fetchWeights(): Promise<WeightRow[]> {
 }
 
 export async function fetchBoundaries(level: Level): Promise<BoundaryCollection> {
-  return getJSON<BoundaryCollection>(`/api/boundaries/${level}`)
+  // Boundaries are static assets (pre-baked by scripts/prepare-static.mjs),
+  // served by Vite's public/ dir in dev and the Vercel CDN in production.
+  return getJSON<BoundaryCollection>(`/boundaries/${level}.json`)
 }
 
 export async function fetchMap(req: MapRequest): Promise<MapResponse> {

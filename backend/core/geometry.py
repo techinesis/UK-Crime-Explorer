@@ -1,20 +1,20 @@
-"""Boundary GeoJSON loading and trimming.
+"""Per-level unit-id index.
 
-Boundaries are large and static, so they are loaded and serialised once per
-level (lru_cache) and served whole; only the small per-filter values map
-changes per request. Geometries are pre-``explode()``-ed (MultiPolygon ->
-Polygon rows) for the same reason app.py does it: deck.gl's GeoJsonLayer is
-more reliable with single-Polygon features.
+Boundary geometry is served as static files (frontend/public/boundaries/*.json,
+on the CDN in production) and never touches Python at runtime. The only thing
+the API needs from "geometry" is the full list of unit ids per level, used to
+0-fill empty units so they still appear (matching app.py's boundary left-join).
+
+That index is pre-baked to data/unit_ids.json by frontend/scripts/prepare-static.mjs,
+so this module has no geopandas dependency — keeping the serverless function lean.
 """
 
 from __future__ import annotations
 
-import hashlib
+import json
 from functools import lru_cache
 
-import geopandas as gpd
-
-from core.paths import BOUNDARY_FILE_BY_LEVEL
+from core.paths import UNIT_IDS_JSON
 
 LEVELS: tuple[str, ...] = ("lsoa", "ward", "borough")
 
@@ -25,14 +25,6 @@ ID_PROP_BY_LEVEL: dict[str, str] = {
     "borough": "borough",
 }
 
-# Properties kept on served features (id + tooltip fields). Everything else is
-# dropped to keep the payload small.
-_KEEP_PROPS_BY_LEVEL: dict[str, list[str]] = {
-    "lsoa": ["lsoa_code", "lsoa_name", "borough"],
-    "ward": ["ward_code", "ward_name", "borough"],
-    "borough": ["borough"],
-}
-
 
 def _validate_level(level: str) -> str:
     level = level.lower()
@@ -41,31 +33,12 @@ def _validate_level(level: str) -> str:
     return level
 
 
-@lru_cache(maxsize=len(LEVELS))
-def _load_boundary(level: str) -> gpd.GeoDataFrame:
-    level = _validate_level(level)
-    gdf = gpd.read_file(BOUNDARY_FILE_BY_LEVEL[level])
-    gdf = gdf.explode(index_parts=False, ignore_index=True)
-    id_col = ID_PROP_BY_LEVEL[level]
-    gdf[id_col] = gdf[id_col].astype(str)
-    keep = [c for c in _KEEP_PROPS_BY_LEVEL[level] if c in gdf.columns]
-    return gdf[[*keep, "geometry"]]
-
-
-@lru_cache(maxsize=len(LEVELS))
-def get_boundaries_json(level: str) -> str:
-    """Return a trimmed GeoJSON FeatureCollection string for the level."""
-    return _load_boundary(_validate_level(level)).to_json()
-
-
-@lru_cache(maxsize=len(LEVELS))
-def get_boundaries_etag(level: str) -> str:
-    """Content-based ETag so the browser revalidates when geometry changes."""
-    digest = hashlib.md5(get_boundaries_json(_validate_level(level)).encode()).hexdigest()
-    return f'"{digest}"'
+@lru_cache(maxsize=1)
+def _all_unit_ids() -> dict[str, list[str]]:
+    with open(UNIT_IDS_JSON, encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 def unit_ids(level: str) -> list[str]:
     """Every unit id at the level (used to 0-fill the values map)."""
-    level = _validate_level(level)
-    return _load_boundary(level)[ID_PROP_BY_LEVEL[level]].drop_duplicates().tolist()
+    return [str(i) for i in _all_unit_ids()[_validate_level(level)]]

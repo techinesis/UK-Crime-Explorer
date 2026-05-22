@@ -1,0 +1,25 @@
+# Excludes files from the Vercel deployment upload/build context.
+# The frontend build needs data/*_boundaries_clean.geojson; the function needs
+# backend/ + the snapshot + the small CSV/JSON lookups. Everything else is noise.
+
+.git
+.venv
+backend/.venv
+.cache
+node_modules
+frontend/node_modules
+outputs
+__pycache__
+*.pyc
+
+# Large source data not needed at runtime (the function reads the snapshot;
+# the frontend build only needs the cleaned boundary GeoJSON)
+data/london_crime_by_lsoa.csv
+data/statistical-gis-boundaries-london
+data/cchi2020dataxls.xlsx
+data/crime-data.tar.xz
+
+# Legacy Streamlit app — not part of the Vercel deployment
+app.py
+.streamlit
+static

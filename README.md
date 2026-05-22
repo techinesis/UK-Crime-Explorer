@@ -117,11 +117,35 @@ All routes are under `/api`:
 | Method | Route | Purpose |
 |---|---|---|
 | GET | `/api/meta` | Years, months, periods, categories (+ metadata), boroughs, tiers |
-| GET | `/api/boundaries/{level}` | Boundary GeoJSON for `lsoa` / `ward` / `borough` (browser-cached) |
 | POST | `/api/map` | Per-unit values + crime counts + colour-scale bounds for a filter set |
 | GET | `/api/weights` | The full category weights table |
 
 Interactive API docs are available at `http://127.0.0.1:8000/docs`.
+
+Boundary GeoJSON is **not** an API route — it is served as static assets at
+`/boundaries/{level}.json`, pre-baked by `frontend/scripts/prepare-static.mjs`
+(run automatically before `dev` and `build`).
+
+---
+
+## Deploying to Vercel
+
+The app deploys as a static frontend (CDN) plus one lightweight Python
+serverless function:
+
+- `frontend/dist` → static site, including the pre-baked `/boundaries/*.json`.
+- `api/index.py` → FastAPI function for `/api/meta`, `/api/map`, `/api/weights`.
+  It reads the committed `data/crime_snapshot.parquet` (~2 MB) and uses **pandas
+  only** — no geopandas — so the bundle is small and cold starts are fast.
+
+`vercel.json` wires it up (frontend build command, `/api/*` rewrite to the
+function, and the data files the function needs). No environment variables or
+API keys are required (the basemap is token-free).
+
+To deploy: import the repository at [vercel.com/new](https://vercel.com/new),
+keep the **root directory at the repository root** (not `frontend/`), and deploy.
+Vercel reads `vercel.json` automatically. Pushes to a branch get a preview URL;
+the production branch deploys on merge.
 
 ---
 
