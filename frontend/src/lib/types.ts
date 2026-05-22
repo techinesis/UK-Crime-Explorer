@@ -1,0 +1,56 @@
+// Mirrors backend/api/schemas.py. Keep in sync with the Pydantic models.
+
+export type Level = 'lsoa' | 'ward' | 'borough'
+export type Metric = 'raw' | 'share' | 'severity' | 'preventability' | 'composite'
+export type SeverityBasis = 'mean' | 'median'
+
+export interface CategoryMeta {
+  name: string
+  preventability_tier: string
+  preventability_confidence: string
+  preventability_anchor: string
+}
+
+export interface MetaResponse {
+  years: number[]
+  months: number[]
+  periods: Array<[number, number]> // distinct (year, month) pairs, chronological
+  categories: CategoryMeta[]
+  boroughs: string[]
+  tiers: string[]
+}
+
+export interface MapRequest {
+  categories: string[] // empty = all
+  tier: string
+  year: number | null // null = all
+  months: number[] // empty = all
+  borough: string
+  level: Level
+  metric: Metric
+  severity_basis: SeverityBasis
+}
+
+export interface MapResponse {
+  values: Record<string, number>
+  crime_counts: Record<string, number>
+  vmin: number
+  vmax: number
+}
+
+export interface WeightRow {
+  category: string
+  severity_weight_mean: number | null
+  severity_weight_median: number | null
+  preventability_multiplier: number | null
+  preventability_tier: string
+  preventability_confidence: string
+  preventability_anchor: string
+}
+
+// GeoJSON shape for the boundary layers (geometry + trimmed props).
+import type { Feature, FeatureCollection, Geometry } from 'geojson'
+
+export type BoundaryProps = Record<string, string | number | null>
+export type BoundaryFeature = Feature<Geometry, BoundaryProps>
+export type BoundaryCollection = FeatureCollection<Geometry, BoundaryProps>

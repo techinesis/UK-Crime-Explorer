@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+
+/* Class-based dark mode (toggled by adding `.dark` to <html>). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Light theme (default). */
+:root {
+  --surface: #f1f5f9; /* page + right panel */
+  --sidebar: #e2e8f0; /* left sidebar */
+  --card: #ffffff; /* cards, inputs, overlays */
+  --fg: #0f172a; /* primary text */
+  --muted: #64748b; /* secondary text */
+  --border: #cbd5e1;
+  --accent: #2563eb;
+  color-scheme: light;
+}
+
+/* Dark theme — the original Tailwind-slate palette. */
+.dark {
+  --surface: #0f172a;
+  --sidebar: #020617;
+  --card: #1e293b;
+  --fg: #f1f5f9;
+  --muted: #94a3b8;
+  --border: #334155;
+  --accent: #60a5fa;
+  color-scheme: dark;
+}
+
+/* `inline` makes the generated utilities reference the CSS variables, so they
+   re-resolve live when the `.dark` class is toggled. */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-sidebar: var(--sidebar);
+  --color-card: var(--card);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
