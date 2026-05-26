@@ -23,3 +23,19 @@ static/colored/*.geojson
 !static/colored/.gitkeep
 
 .cache
+
+# --- Full-stack rewrite (React + FastAPI) ---
+# NOTE: data/crime_snapshot.parquet IS committed — it is the production data
+# source on Vercel (the 890 MB raw CSV above is not deployable). It is small (~2 MB).
+# Frontend: node + build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+# Generated static boundaries (rebuilt from data/*.geojson by prepare-static.mjs)
+frontend/public/boundaries/
+# Vite builds the SPA here (repo-root public/) for Vercel's FastAPI static serving
+/public/
+# Python venvs anywhere in the tree
+backend/.venv/
+# Vercel local
+.vercel/

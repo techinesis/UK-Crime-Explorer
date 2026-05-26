@@ -1,0 +1,18 @@
+# --- Data pipeline (lifted from the original app) ---
+numpy==1.26.4          # pinned for the geopandas/pandas combo; do not bump
+pandas
+geopandas
+shapely
+pyarrow                # parquet snapshot of the crime DataFrame
+openpyxl               # CCHI 2020 xlsx in prepare_category_weights.py
+tqdm                   # client.py progress bars
+requests               # client.py HTTP calls to data.police.uk / Kaggle
+
+# --- Web API ---
+fastapi
+uvicorn[standard]
+pydantic>=2
+
+# --- Dev / test ---
+pytest
+httpx                  # FastAPI TestClient dependency
