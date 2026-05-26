@@ -19,10 +19,6 @@ data/statistical-gis-boundaries-london
 data/cchi2020dataxls.xlsx
 data/crime-data.tar.xz
 
-# Legacy Streamlit app — not part of the Vercel deployment
-app.py
-.streamlit
-static
 # Root Streamlit requirements — must NOT be installed for the Python function
 # (the function uses the lean api/requirements.txt). Leading slash = root only.
 /requirements.txt
