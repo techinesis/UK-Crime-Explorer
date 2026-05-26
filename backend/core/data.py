@@ -45,6 +45,34 @@ TIER_ALL = "All tiers"
 YEAR_ALL = "All years"
 BOROUGH_ALL = "All boroughs"
 
+# Canonicalize crime-category labels to the 14 proper names. The assembled data
+# historically carried three spellings of the same categories: the proper names
+# (from the Kaggle 2008-2016 mapping), raw data.police.uk slugs from older cached
+# monthly extracts, and two typos ("Robber", "Posession of weapons") baked into
+# an earlier client.py marker mapping. Collapsing them gives /api/meta a clean
+# 14-item list and stops counts being split across duplicate labels. Applied
+# before the weights merge so the names line up with category_weights.csv.
+CANONICAL_CATEGORY: dict[str, str] = {
+    # data.police.uk slugs -> proper names
+    "anti-social-behaviour": "Anti-social behaviour",
+    "bicycle-theft": "Bicycle theft",
+    "burglary": "Burglary",
+    "criminal-damage-arson": "Criminal damage and arson",
+    "drugs": "Drugs",
+    "other-crime": "Other crime",
+    "other-theft": "Other theft",
+    "possession-of-weapons": "Possession of weapons",
+    "public-order": "Public order",
+    "robbery": "Robbery",
+    "shoplifting": "Shoplifting",
+    "theft-from-the-person": "Theft from the person",
+    "vehicle-crime": "Vehicle crime",
+    "violent-crime": "Violence and sexual offences",
+    # legacy typos that reached the data before client.py was corrected
+    "Robber": "Robbery",
+    "Posession of weapons": "Possession of weapons",
+}
+
 
 def _fetch_raw_crime() -> pd.DataFrame:
     """Fetch the raw long crime DataFrame from the data client (may hit the
@@ -86,6 +114,9 @@ def _enrich(raw: pd.DataFrame) -> pd.DataFrame:
 
     crime = raw.copy()
     crime["lsoa_code"] = crime["lsoa_code"].astype(str)
+    # Collapse slug/typo category variants to the canonical 14 names so they
+    # match the weights table and present as one clean list downstream.
+    crime["category"] = crime["category"].replace(CANONICAL_CATEGORY)
     lsoa_to_ward["lsoa_code"] = lsoa_to_ward["lsoa_code"].astype(str)
     lsoa_to_ward["ward_code"] = lsoa_to_ward["ward_code"].astype(str)
 
