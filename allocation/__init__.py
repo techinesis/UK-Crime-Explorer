@@ -157,15 +157,19 @@ class RawlsModel(AllocationModel):
         > They are to be to the greatest benefit of the least-advantaged members of society.
 
     In this way, we maximize z where z is the "fraction of proportional entitlement" that every
-    LSOA receives.
+    LSOA receives. The entitlement is essentially a measure of how much a given LSOA would be
+    allocated in the standard baseline model given the score s_i. So it "improves" on the baseline
+    by benefiting LSOAs that would have originally been given a lesser allocation.
 
     We are solving the following objective:
      max_{x, z} z
     such that
-     ∀ i : x_i >= z * s_i * T / S
+     forall i : x_i >= z * ent_i
      \sum_i x_i = T
      x_i >= x^min
      z \in [0, 1]
+    where
+     ent_i = s_i * T / S
     """
 
     def __init__(self, weighted_column: str, **options):
