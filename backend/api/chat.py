@@ -1,19 +1,23 @@
-"""FastAPI chat router: POST /api/chat and GET /api/chat/health.
+"""FastAPI chat router: POST /api/chat (SSE) and GET /api/chat/health.
 
-Phase 1 returns plain JSON (no streaming). Shape:
+POST /api/chat streams Server-Sent Events (``text/event-stream``). Each line is
+``data: {json}\\n\\n`` where the JSON is one of:
 
-    {
-      "text": str,                         # the assistant's reply
-      "actions": [{"type": "set_filters",  # applied client-side after render
-                   "payload": {...}}],
-      "tool_calls": [{"name", "args",      # surfaced as audit badges in the UI
-                      "result_summary"}]
-    }
+    {"type": "text", "text": "<delta>"}                         # reply chunk
+    {"type": "tool_call", "name", "args", "result_summary"}     # audit badge
+    {"type": "action", "action": {"type": "set_filters",        # apply after text
+                                  "payload": {...}}}
+    {"type": "done"}                                            # terminal
+    {"type": "error", "error": "..."}                           # mid-stream failure
+
+Pre-flight failures (before the stream starts) return plain JSON with a non-200
+status instead: 503 ``{"error": "AI chat is not configured"}`` when unconfigured,
+400 for empty input, 502 if the Anthropic client cannot be constructed.
 
 Graceful degradation: if ANTHROPIC_API_KEY is unset (or the chat deps are not
-installed), POST /api/chat returns 503 ``{"error": "AI chat is not configured"}``
-and GET /api/chat/health reports ``{"configured": false}`` so the frontend hides
-the panel entirely. The rest of the dashboard is unaffected.
+installed), POST returns 503 and GET /api/chat/health reports
+``{"configured": false}`` so the frontend hides the panel entirely. The rest of
+the dashboard is unaffected.
 
 Rate limiting (20/min/IP) uses slowapi. slowapi lives only in the *full* backend
 requirements, not the lean Vercel function, so its import is guarded: without it
@@ -23,10 +27,11 @@ than breaking app import.
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, Iterator
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.schemas import MapRequest
@@ -64,14 +69,8 @@ class ChatRequest(BaseModel):
     # The dashboard's current filter state, sent as context so the assistant can
     # reason about "the current view". Optional.
     filters: MapRequest | None = None
-
-
-# The 200 response shape (documented here, serialised straight from run_chat):
-#   {"text": str,
-#    "actions": [{"type": "set_filters", "payload": <partial MapRequest>}],
-#    "tool_calls": [{"name": str, "args": object, "result_summary": str}]}
-# Error paths return {"error": str} with a 4xx/5xx status, so the route emits
-# JSONResponse directly rather than via a response_model.
+    # Stakeholder persona: "police" | "examiner" | "community". Unknown -> police.
+    persona: str = "police"
 
 
 # --------------------------------------------------------------------------- #
@@ -85,8 +84,17 @@ def chat_health() -> dict[str, bool]:
     return {"configured": chat_core.chat_available() and _SLOWAPI_AVAILABLE}
 
 
-def _run_chat_request(body: ChatRequest) -> JSONResponse:
-    """Shared handler body (wrapped by the rate-limited route)."""
+def _sse(event: dict[str, Any]) -> str:
+    """Encode one event as an SSE ``data:`` frame."""
+    return f"data: {json.dumps(event)}\n\n"
+
+
+def _run_chat_request(body: ChatRequest) -> Response:
+    """Shared handler body (wrapped by the rate-limited route).
+
+    Returns a plain ``JSONResponse`` for pre-flight failures (so the client gets a
+    real status code), otherwise a ``StreamingResponse`` of SSE events.
+    """
     if not (chat_core.chat_available() and _SLOWAPI_AVAILABLE):
         return JSONResponse(status_code=503, content=_NOT_CONFIGURED)
 
@@ -95,31 +103,48 @@ def _run_chat_request(body: ChatRequest) -> JSONResponse:
         return JSONResponse(status_code=400, content={"error": "messages must not be empty"})
 
     current_filters = body.filters.model_dump() if body.filters is not None else None
+    persona = chat_core.resolve_persona(body.persona)
 
+    # Construct the client up front so a config/connection failure is a clean 502
+    # (not a half-open stream the client can't distinguish from success).
     try:
         client = chat_core.build_client()
-        result = chat_core.run_chat(messages, client=client, current_filters=current_filters)
     except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the client
         return JSONResponse(
             status_code=502,
-            content={"error": f"The AI assistant could not complete the request: {exc}"},
+            content={"error": f"The AI assistant could not be reached: {exc}"},
         )
 
-    return JSONResponse(status_code=200, content=result)
+    def event_stream() -> Iterator[str]:
+        try:
+            for event in chat_core.run_chat_stream(
+                messages, client=client, persona=persona, current_filters=current_filters
+            ):
+                yield _sse(event)
+        except Exception as exc:  # noqa: BLE001 - status is already 200; report in-band
+            yield _sse(
+                {"type": "error", "error": f"The AI assistant could not complete the request: {exc}"}
+            )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 if _SLOWAPI_AVAILABLE:
 
     @router.post("/api/chat")
     @_limiter.limit(RATE_LIMIT)
-    async def chat_endpoint(request: Request, body: ChatRequest) -> JSONResponse:  # noqa: ARG001
+    async def chat_endpoint(request: Request, body: ChatRequest) -> Response:  # noqa: ARG001
         # `request` is required by slowapi to identify the client IP.
         return _run_chat_request(body)
 
 else:  # pragma: no cover - lean function path (no slowapi)
 
     @router.post("/api/chat")
-    async def chat_endpoint(body: ChatRequest) -> JSONResponse:
+    async def chat_endpoint(body: ChatRequest) -> Response:
         return JSONResponse(status_code=503, content=_NOT_CONFIGURED)
 
 

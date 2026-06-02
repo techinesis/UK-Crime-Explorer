@@ -27,7 +27,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from core.composite import (
     VALID_METRICS,
@@ -87,17 +87,20 @@ DEFAULT_FILTERS: dict[str, Any] = {
 
 
 # --------------------------------------------------------------------------- #
-# Police (Phase 1) system prompt
+# System prompt: one shared core + a per-persona preamble
 # --------------------------------------------------------------------------- #
+#
+# The data layer is identical across all three personas (Phase 2 spec); only the
+# audience, tone, depth, and example emphasis change. We therefore keep the
+# dashboard facts + tool rules + hard rules in ONE shared block and swap only a
+# short persona preamble. _system_blocks() emits the shared core FIRST (with the
+# prompt-cache marker) so the cached prefix is identical regardless of persona —
+# switching persona still hits the cache.
 
-POLICE_SYSTEM_PROMPT = """\
+_SHARED_CORE = """\
 You are the assistant inside the **London Crime Explorer**, a dashboard that maps
 recorded crime across London and exposes a composite *police-demand signal* —
 `crime count × severity × preventability` — at LSOA, ward, and borough level.
-
-You are speaking to a **police / policy planner**: a non-data-scientist who needs
-clear, operational, plain-language answers. Be concise and professional. Prefer
-short paragraphs and tight bullet lists over long prose.
 
 ## What the dashboard means
 - **Severity** comes from the Cambridge Crime Harm Index (CCHI) 2020 — recommended
@@ -120,7 +123,7 @@ You operate in three implicit modes; pick based on the user's intent:
    literature anchors (e.g. Weisburd 2015, Braga 2019) by name in your answer.
 
 You may call several tools before answering. After tools return, write the answer
-in natural language for the planner.
+in natural language.
 
 ## Hard rules (do not break these)
 - **Every quantitative claim — counts, rankings, multipliers, comparisons — MUST come
@@ -134,8 +137,58 @@ in natural language for the planner.
   remains with the planner — do not say "deploy N officers here".
 - Do not claim the dashboard view changed unless you actually called set_filters.
 
-Stay grounded, stay useful, and keep the human in the loop.
-"""
+Stay grounded, stay useful, and keep the human in the loop."""
+
+
+# Per-persona preamble. Same tools, same data — only audience, tone, and emphasis
+# change (Phase 2 spec persona table). Order in _system_blocks: shared core, then
+# this preamble, then the live "current view".
+PERSONAS: dict[str, dict[str, str]] = {
+    "police": {
+        "name": "Police",
+        "preamble": (
+            "You are speaking to a **police / policy planner**: a non-data-scientist "
+            "who needs clear, operational, plain-language answers. Be concise and "
+            "professional. Lead with what matters operationally (where demand is highest, "
+            "how this month compares), and prefer short paragraphs and tight bullet lists."
+        ),
+    },
+    "examiner": {
+        "name": "Examiner",
+        "preamble": (
+            "You are speaking to an **academic examiner**: rigorous and methodology-aware. "
+            "Be precise about *why* each modelling choice was made, name the literature and "
+            "evidence behind it (CCHI 2020 for severity; Weisburd 2015, Braga 2019 for "
+            "preventability), and state what would differ under an alternative scheme (e.g. "
+            "median vs mean CCHI). Surface assumptions and limitations honestly. Still ground "
+            "every number in a tool call."
+        ),
+    },
+    "community": {
+        "name": "Community",
+        "preamble": (
+            "You are speaking to a **community member**: accessible and non-technical. "
+            "Avoid jargon (explain terms like 'composite' or 'LSOA' in plain words). "
+            "Emphasise transparency and ethics — be clear about what the model does and does "
+            "NOT do, that it describes recorded crime and ranks areas but does not decide "
+            "policing, and that a human makes any deployment decision. Be reassuring and honest "
+            "about limitations rather than alarming."
+        ),
+    },
+}
+
+DEFAULT_PERSONA = "police"
+
+
+def resolve_persona(persona: str | None) -> str:
+    """Map a requested persona id to a known one; unknown/missing -> police."""
+    if persona and str(persona).lower() in PERSONAS:
+        return str(persona).lower()
+    return DEFAULT_PERSONA
+
+
+# Back-compat: the composed Police prompt (preamble + shared core).
+POLICE_SYSTEM_PROMPT = f"{PERSONAS['police']['preamble']}\n\n{_SHARED_CORE}"
 
 
 # --------------------------------------------------------------------------- #
@@ -622,15 +675,28 @@ def build_client() -> Any:
 # --------------------------------------------------------------------------- #
 
 
-def _system_blocks(current_filters: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """System prompt as content blocks. The large static persona block is marked
-    for prompt caching; the small dynamic 'current view' block is not cached."""
+def _system_blocks(
+    current_filters: dict[str, Any] | None,
+    persona: str = DEFAULT_PERSONA,
+) -> list[dict[str, Any]]:
+    """System prompt as content blocks, ordered for prompt-cache reuse:
+
+    1. the large shared core (marked ephemeral, so it caches and is reused even
+       when the persona changes — the cached prefix stays identical),
+    2. the short persona preamble (audience/tone — varies by persona),
+    3. the small dynamic 'current view' block (varies per request).
+    """
+    persona_id = resolve_persona(persona)
     blocks: list[dict[str, Any]] = [
         {
             "type": "text",
-            "text": POLICE_SYSTEM_PROMPT,
+            "text": _SHARED_CORE,
             "cache_control": {"type": "ephemeral"},
-        }
+        },
+        {
+            "type": "text",
+            "text": PERSONAS[persona_id]["preamble"],
+        },
     ]
     if current_filters:
         blocks.append(
@@ -652,51 +718,51 @@ def _block_attr(block: Any, name: str, default: Any = None) -> Any:
     return getattr(block, name, default)
 
 
-def run_chat(
+def run_chat_stream(
     messages: list[dict[str, Any]],
     *,
     client: Any,
     model: str = DEFAULT_MODEL,
+    persona: str = DEFAULT_PERSONA,
     current_filters: dict[str, Any] | None = None,
     max_iterations: int = MAX_TOOL_ITERATIONS,
-) -> dict[str, Any]:
-    """Run the agentic tool-use loop and return the Phase 1 response payload.
+) -> Iterator[dict[str, Any]]:
+    """Run the agentic tool-use loop, yielding events as they happen.
+
+    This is the single source of truth for the loop; :func:`run_chat` drains it.
 
     ``messages`` is the conversation as ``[{"role", "content"}]`` (user/assistant,
-    plain strings). ``client`` is any object exposing ``messages.create(...)`` with
-    the Anthropic shape — injected so tests can pass a fake.
+    plain strings). ``client`` is any object exposing the Anthropic streaming
+    surface — ``messages.stream(...)`` returning a context manager with a
+    ``text_stream`` iterator and ``get_final_message()`` — injected so tests can
+    pass a fake.
 
-    Returns ``{"text", "actions", "tool_calls"}``:
-    * ``text`` — the assistant's final natural-language reply.
-    * ``actions`` — ``set_filters`` actions for the frontend to apply after render.
-    * ``tool_calls`` — ``{name, args, result_summary}`` audit records for the UI.
+    Yields event dicts (consumed by the SSE route and the frontend):
+    * ``{"type": "text", "text": <delta>}`` — a chunk of the assistant's reply.
+    * ``{"type": "tool_call", "name", "args", "result_summary"}`` — an audit record.
+    * ``{"type": "action", "action": {"type": "set_filters", "payload": {...}}}``.
+    * ``{"type": "done"}`` — terminal event.
     """
     convo: list[dict[str, Any]] = [
         {"role": m["role"], "content": m["content"]}
         for m in messages[-MAX_CONTEXT_MESSAGES:]
     ]
-    system = _system_blocks(current_filters)
-
-    actions: list[dict[str, Any]] = []
-    tool_calls: list[dict[str, Any]] = []
-    text_out = ""
+    system = _system_blocks(current_filters, persona)
 
     for _ in range(max_iterations):
-        response = client.messages.create(
+        with client.messages.stream(
             model=model,
             max_tokens=2048,
             system=system,
             tools=TOOLS,
             messages=convo,
-        )
-        content = list(response.content)
-        text_parts = [
-            _block_attr(b, "text", "") for b in content if _block_attr(b, "type") == "text"
-        ]
-        joined = "\n".join(t for t in text_parts if t).strip()
-        if joined:
-            text_out = joined
+        ) as stream:
+            for delta in stream.text_stream:
+                if delta:
+                    yield {"type": "text", "text": delta}
+            final = stream.get_final_message()
 
+        content = list(final.content)
         tool_uses = [b for b in content if _block_attr(b, "type") == "tool_use"]
         if not tool_uses:
             break
@@ -707,9 +773,9 @@ def run_chat(
             name = _block_attr(tu, "name")
             args = _block_attr(tu, "input") or {}
             result, action, summary = dispatch_tool(name, args)
-            tool_calls.append({"name": name, "args": args, "result_summary": summary})
+            yield {"type": "tool_call", "name": name, "args": args, "result_summary": summary}
             if action is not None:
-                actions.append(action)
+                yield {"type": "action", "action": action}
             tool_results.append(
                 {
                     "type": "tool_result",
@@ -719,4 +785,45 @@ def run_chat(
             )
         convo.append({"role": "user", "content": tool_results})
 
-    return {"text": text_out, "actions": actions, "tool_calls": tool_calls}
+    yield {"type": "done"}
+
+
+def run_chat(
+    messages: list[dict[str, Any]],
+    *,
+    client: Any,
+    model: str = DEFAULT_MODEL,
+    persona: str = DEFAULT_PERSONA,
+    current_filters: dict[str, Any] | None = None,
+    max_iterations: int = MAX_TOOL_ITERATIONS,
+) -> dict[str, Any]:
+    """Non-streaming convenience wrapper: drain :func:`run_chat_stream` into the
+    assembled ``{"text", "actions", "tool_calls"}`` payload. Kept for tests and any
+    caller that wants the whole reply at once."""
+    text_parts: list[str] = []
+    actions: list[dict[str, Any]] = []
+    tool_calls: list[dict[str, Any]] = []
+
+    for event in run_chat_stream(
+        messages,
+        client=client,
+        model=model,
+        persona=persona,
+        current_filters=current_filters,
+        max_iterations=max_iterations,
+    ):
+        kind = event.get("type")
+        if kind == "text":
+            text_parts.append(event["text"])
+        elif kind == "tool_call":
+            tool_calls.append(
+                {
+                    "name": event["name"],
+                    "args": event["args"],
+                    "result_summary": event["result_summary"],
+                }
+            )
+        elif kind == "action":
+            actions.append(event["action"])
+
+    return {"text": "".join(text_parts).strip(), "actions": actions, "tool_calls": tool_calls}
