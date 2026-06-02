@@ -59,7 +59,7 @@ const PERSONAS: Array<{ id: Persona; label: string; blurb: string }> = [
 const STARTER_PROMPTS_BY_PERSONA: Record<Persona, string[]> = {
   police: [
     'Which five boroughs have the highest preventable harm?',
-    'Show me robbery in Westminster in 2024',
+    'Where should we focus officers this month?',
     'How is preventability calculated?',
   ],
   examiner: [

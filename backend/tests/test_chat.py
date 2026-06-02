@@ -231,6 +231,21 @@ def test_resolve_persona_maps_known_and_defaults_unknown():
     assert resolve_persona("nonsense") == "police"
 
 
+def test_shared_core_carries_the_deployment_and_forecast_guardrail():
+    core = chat_core._SHARED_CORE.lower()
+    # Deployment decision is routed to the human planner, not the assistant.
+    assert "planner" in core
+    assert "deploy" in core
+    # The assistant must refuse to invent forecast / allocation numbers.
+    assert "forecast" in core
+    assert "allocation" in core
+    assert "never" in core
+    # The guardrail rides on the shared core, so every persona inherits it.
+    for persona in PERSONAS:
+        blocks = chat_core._system_blocks(None, persona)
+        assert blocks[0]["text"] == chat_core._SHARED_CORE
+
+
 def test_system_blocks_swap_persona_but_keep_a_stable_cached_core():
     police = chat_core._system_blocks(None, "police")
     examiner = chat_core._system_blocks(None, "examiner")
