@@ -1,6 +1,26 @@
+from datetime import date
 import numpy as np
 import pandas as pd
 from scipy.optimize import linprog
+import calendar
+
+
+ANTI_OVER_POLICING_WEIGHTS: dict[str, float] = {
+    "Anti-social behaviour": 0.35,
+    "Bicycle theft": 0.75,
+    "Burglary": 0.95,
+    "Criminal damage and arson": 0.85,
+    "Drugs": 0.25,
+    "Other crime": 0.6,
+    "Other theft": 0.8,
+    "Possession of weapons": 0.5,
+    "Public order": 0.4,
+    "Robbery": 0.95,
+    "Shoplifting": 0.7,
+    "Theft from the person": 0.9,
+    "Vehicle crime": 0.9,
+    "Violence and sexual offences": 1.0,
+}
 
 
 class AllocationModel:
@@ -50,7 +70,7 @@ class LPModel(AllocationModel):
      \sum_i x_i = T
      x_i >= x^min
      x_i <= x_i^max
-     ∀ borough : \sum_{lsoa \in borough} x_lsoa >= h * C_borough / C * T
+     forall borough : \sum_{lsoa \in borough} x_lsoa >= h * C_borough / C * T
     where
      s_i = weighted score (severity and preventability)
      c_i = crime count
@@ -230,3 +250,221 @@ class RawlsModel(AllocationModel):
 
 def allocate(model: AllocationModel, df: pd.DataFrame, **options):
     return model.allocate(df, **options)
+
+
+_DAILY_HOURLY_WEIGHTS: dict[str, tuple[list[float], list[float]]] = {
+    "Violence and sexual offences": (
+        [
+            2,
+            3,
+            4,
+            4,
+            3,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            6,
+            4,
+        ],
+        [2, 2, 2, 3, 5, 7, 5],
+    ),
+    "Burglary": (
+        [
+            2,
+            2,
+            2,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            6,
+            5,
+            4,
+            3,
+            3,
+            2,
+        ],
+        [4, 4, 4, 4, 3, 3, 4],
+    ),
+    "Theft from the person": (
+        [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            4,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            4,
+            4,
+            3,
+            3,
+            2,
+            2,
+            1,
+            1,
+            1,
+        ],
+        [4, 4, 4, 4, 4, 5, 4],
+    ),
+    "Anti-social behaviour": (
+        [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            3,
+            3,
+            4,
+            5,
+            6,
+            6,
+            5,
+            4,
+            3,
+            2,
+        ],
+        [3, 3, 3, 4, 5, 6, 5],
+    ),
+    "Drugs": (
+        [1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 4, 3, 3, 2],
+        [3, 3, 3, 4, 5, 5, 4],
+    ),
+    "Criminal damage and arson": (
+        [
+            2,
+            3,
+            3,
+            2,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            2,
+            2,
+            3,
+            4,
+            5,
+            5,
+            4,
+            4,
+            3,
+            2,
+        ],
+        [3, 3, 3, 4, 5, 6, 4],
+    ),
+    "Vehicle crime": (
+        [2, 3, 4, 3, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 4, 4, 3, 3, 2, 1],
+        [4, 4, 4, 4, 4, 5, 4],
+    ),
+    "Robbery": (
+        [1, 2, 2, 2, 1, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 5, 5, 5, 4, 3, 2],
+        [3, 3, 3, 4, 5, 5, 4],
+    ),
+    "Shoplifting": (
+        [1, 1, 1, 1, 1, 1, 1, 2, 4, 5, 5, 5, 5, 5, 5, 5, 4, 3, 2, 1, 1, 1, 1, 1],
+        [5, 5, 5, 5, 5, 6, 3],
+    ),
+    "Other crime": (
+        [1, 1, 1, 1, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 1, 1],
+        [4, 4, 4, 4, 4, 4, 4],
+    ),
+}
+
+
+type Hour = int
+type Day = int
+type Month = int
+type Year = int
+
+
+def schedule_units(
+    units: int,
+    crime_share: dict[str, float],
+    year: Year,
+    month: Month,
+    active_units=0.33,
+    min_units=1,
+) -> dict[Day, dict[Hour, int]]:
+    if not 0 < active_units <= 1:
+        raise ValueError("active_units must be between 0 and 1")
+    if units <= 0:
+        raise ValueError("units must be >= 1")
+
+    total_crime_share = sum(crime_share.values())
+    if total_crime_share == 0:
+        raise ValueError("crime_share must contain at least one non-zero value")
+
+    norm = {k: v / total_crime_share for k, v in crime_share.items()}
+
+    num_days = calendar.monthrange(year, month)[1]
+    risk = np.zeros((num_days, 24), dtype=float)
+
+    for category, share in norm.items():
+        category = category if category in _DAILY_HOURLY_WEIGHTS else "Other crime"
+
+        hourly = np.array(_DAILY_HOURLY_WEIGHTS[category][0], dtype=float)
+        hourly /= hourly.sum()
+
+        daily = np.array(_DAILY_HOURLY_WEIGHTS[category][1], dtype=float)
+        daily /= daily.sum()
+
+        for d in range(num_days):
+            dow = date(year, month, d + 1).weekday()
+            risk[d] += share * daily[dow] * hourly
+
+    risk /= risk.mean()
+    raw = risk * units * active_units
+
+    units = np.maximum(np.round(raw).astype(int), min_units)
+
+    return {d + 1: {h: int(units[d, h]) for h in range(24)} for d in range(num_days)}
