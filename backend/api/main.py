@@ -24,6 +24,7 @@ from core.data import (
     get_crime_long,
 )
 from core.weights import category_metadata, load_weights, weights_records
+from api.chat import register_chat
 from api.schemas import CategoryMeta, MapRequest, MapResponse, MetaResponse
 
 ALLOWED_ORIGINS = [
@@ -101,6 +102,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Mount the AI chat router (POST /api/chat, GET /api/chat/health) on the same app
+# so it shares the CORS config above. Self-disables gracefully when the chat is
+# not configured (no API key / deps), leaving the rest of the API untouched.
+register_chat(app)
 
 
 @app.get("/api/health")
