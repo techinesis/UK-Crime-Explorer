@@ -1,6 +1,9 @@
 import { useCallback, useState } from 'react'
 import type { Level, Metric, SeverityBasis } from '../lib/types'
 
+export type ForecastMode = 'historical' | 'forecast'
+export type ForecastModel = 'xgboost' | 'baseline'
+
 export interface FilterState {
   categories: string[] // empty = all
   tier: string
@@ -10,6 +13,11 @@ export interface FilterState {
   level: Level
   metric: Metric
   severityBasis: SeverityBasis
+
+  // Forecasting options
+  mode: ForecastMode
+  forecastHorizon: number
+  forecastModel: ForecastModel
 }
 
 export const TIER_ALL = 'All tiers'
@@ -25,6 +33,11 @@ export const DEFAULT_FILTERS: FilterState = {
   level: 'lsoa',
   metric: 'raw',
   severityBasis: 'mean',
+
+  // Forecasting defaults
+  mode: 'historical',
+  forecastHorizon: 1,
+  forecastModel: 'xgboost',
 }
 
 export const METRIC_OPTIONS: Array<{ value: Metric; label: string }> = [
@@ -41,18 +54,40 @@ export const LEVEL_OPTIONS: Array<{ value: Level; label: string }> = [
   { value: 'borough', label: 'Borough' },
 ]
 
-/** Human-readable caption for the active metric (used in legend + recap). */
+export const FORECAST_MODE_OPTIONS: Array<{ value: ForecastMode; label: string }> = [
+  { value: 'historical', label: 'Historical' },
+  { value: 'forecast', label: 'Forecast' },
+]
+
+export const FORECAST_HORIZON_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 1, label: 'Next month' },
+  { value: 3, label: 'Next 3 months' },
+  { value: 6, label: 'Next 6 months' },
+  { value: 12, label: 'Next 12 months' },
+]
+
+export const FORECAST_MODEL_OPTIONS: Array<{ value: ForecastModel; label: string }> = [
+  { value: 'xgboost', label: 'XGBoost' },
+  { value: 'baseline', label: 'Seasonal baseline' },
+]
+
+/** Human-readable caption for the active metric, used in legend and recap. */
 export function metricCaption(metric: Metric, basis: SeverityBasis): string {
   const basisLabel = basis === 'mean' ? 'Mean CCHI' : 'Median CCHI'
+
   switch (metric) {
     case 'raw':
       return 'Recorded crime count'
+
     case 'share':
       return 'Crime share within selected data (%)'
+
     case 'severity':
       return `Severity-weighted crime count (${basisLabel})`
+
     case 'preventability':
       return 'Preventability-weighted crime count'
+
     case 'composite':
       return `Composite severity × preventability (${basisLabel})`
   }
