@@ -89,7 +89,7 @@ class LPModel(AllocationModel):
 
         self.weighted_column = weighted_column
 
-        self.min_units_per_lsoa = options.get("min_units_per_lsoa", 2)
+        self.min_units_per_lsoa = options.get("min_units_per_lsoa", 6)
 
         self.alpha = options.get("alpha", 0.6)
         self.beta = options.get("beta", 0.25)
@@ -133,7 +133,7 @@ class LPModel(AllocationModel):
         sev_proportional = (s / total_s) * self.total_units
         bounds_lp = [
             (self.min_units_per_lsoa, ub)
-            for ub in np.maximum(10.0, self.max_cap_factor * sev_proportional)
+            for ub in np.maximum(self.min_units_per_lsoa, self.max_cap_factor * sev_proportional)
         ]
 
         boroughs = df["borough"].unique()
