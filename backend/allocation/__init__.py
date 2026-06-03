@@ -248,10 +248,6 @@ class RawlsModel(AllocationModel):
         return df
 
 
-def allocate(model: AllocationModel, df: pd.DataFrame, **options):
-    return model.allocate(df, **options)
-
-
 _DAILY_HOURLY_WEIGHTS: dict[str, tuple[list[float], list[float]]] = {
     "Violence and sexual offences": (
         [
@@ -421,20 +417,14 @@ _DAILY_HOURLY_WEIGHTS: dict[str, tuple[list[float], list[float]]] = {
 }
 
 
-type Hour = int
-type Day = int
-type Month = int
-type Year = int
-
-
 def schedule_units(
     units: int,
     crime_share: dict[str, float],
-    year: Year,
-    month: Month,
+    year: int,
+    month: int,
     active_units=0.33,
     min_units=1,
-) -> dict[Day, dict[Hour, int]]:
+) -> dict[int, dict[int, int]]:
     if not 0 < active_units <= 1:
         raise ValueError("active_units must be between 0 and 1")
     if units <= 0:
@@ -468,3 +458,50 @@ def schedule_units(
     units = np.maximum(np.round(raw).astype(int), min_units)
 
     return {d + 1: {h: int(units[d, h]) for h in range(24)} for d in range(num_days)}
+
+
+def allocate(model: AllocationModel, df: pd.DataFrame, **options):
+    return model.allocate(df, **options)
+
+
+def allocate_and_schedule(
+    model: AllocationModel,
+    df: pd.DataFrame,
+    crime_share: dict[str, dict[str, float]],  # { LSOA -> { Category -> Share } }
+    year: int,
+    month: int,
+    active_units=0.33,
+    min_units=1,
+    **options,
+):
+    allocated_df = model.allocate(df, **options)
+
+    grouped = allocated_df.groupby("lsoa_code")
+
+    schedules = {}
+
+    for _, row in allocated_df.iterrows():
+        lsoa = row["lsoa_code"]
+        allocated = row[model.output_column]
+
+        if pd.isna(allocated) or allocated <= 0:
+            continue
+
+        if lsoa in grouped.groups:
+            lsoa_crime_data = grouped.get_group(lsoa)
+            lsoa_crime_share = lsoa_crime_data.groupby("category")["crime_count"].sum().to_dict()
+        else:
+            lsoa_crime_share = {"Other crime": 1.0}
+
+        lsoa_schedule = schedule_units(
+            units=int(round(allocated)),
+            crime_share=lsoa_crime_share,
+            year=year,
+            month=month,
+            active_units=active_units,
+            min_units=min_units,
+        )
+
+        schedules[lsoa] = lsoa_schedule
+
+    return schedules
