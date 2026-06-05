@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchMeta, fetchWeights } from './lib/api'
 import { useCrimeData } from './hooks/useCrimeData'
@@ -16,10 +16,17 @@ import SourcesPanel from './components/SourcesPanel'
 import SelectionRecap from './components/SelectionRecap'
 import BoroughSummary from './components/BoroughSummary'
 import Footer from './components/Footer'
+import ChatPanel from './components/ChatPanel'
+import { useChatAvailable } from './hooks/useChatHealth'
 
 export default function App() {
   const { theme, toggle } = useTheme()
   const { filters, update } = useFilters()
+
+  // AI chat panel: only shown when the backend reports it is configured
+  // (ANTHROPIC_API_KEY + deps present). Collapsed by default.
+  const chatAvailable = useChatAvailable()
+  const [chatOpen, setChatOpen] = useState(false)
 
   const meta = useQuery({ queryKey: ['meta'], queryFn: fetchMeta })
   const weights = useQuery({ queryKey: ['weights'], queryFn: fetchWeights })
@@ -58,7 +65,18 @@ export default function App() {
           </p>
         </div>
 
-        <ThemeToggle theme={theme} onToggle={toggle} />
+        <div className="flex items-center gap-2">
+          {chatAvailable && (
+            <button
+              onClick={() => setChatOpen((o) => !o)}
+              aria-pressed={chatOpen}
+              className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-fg hover:border-accent"
+            >
+              💬 Assistant
+            </button>
+          )}
+          <ThemeToggle theme={theme} onToggle={toggle} />
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -139,6 +157,15 @@ export default function App() {
           <Footer />
         </aside>
       </div>
+
+      {chatAvailable && (
+        <ChatPanel
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          filters={filters}
+          update={update}
+        />
+      )}
     </div>
   )
 }

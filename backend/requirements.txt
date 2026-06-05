@@ -13,6 +13,11 @@ fastapi
 uvicorn[standard]
 pydantic>=2
 
+# --- AI chat (Phase 1) ---
+anthropic              # Claude API client (function-calling chat)
+rank_bm25              # in-memory BM25 RAG over the repo's own docs
+slowapi                # per-IP rate limiting on /api/chat
+
 # --- Dev / test ---
 pytest
 httpx                  # FastAPI TestClient dependency
