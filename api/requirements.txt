@@ -9,3 +9,5 @@ anthropic              # AI chat (Phase 1) Claude client; chat self-disables if 
 # NOTE: rank_bm25 and slowapi (chat RAG + rate limiting) are intentionally NOT here
 # in Phase 1 — the chat imports them defensively and self-disables on the function,
 # so the dashboard stays lean. Add them here when enabling chat in production.
+rank_bm25
+slowapi
