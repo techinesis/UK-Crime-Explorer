@@ -36,6 +36,7 @@ export default function SelectionRecap({ filters, totalCategories }: SelectionRe
       <Row label="Year" value={filters.year === null ? 'All years' : String(filters.year)} />
       <Row label="Months" value={months} />
       <Row label="Borough" value={filters.borough} />
+      <Row label="City" value={filters.city} />
     </section>
   )
 }

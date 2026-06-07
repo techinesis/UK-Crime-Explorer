@@ -38,8 +38,8 @@ TIERS = ["All tiers", "High", "Medium", "Low"]
 _META_CACHE: dict[str, object] = {}
 
 
-def _build_meta() -> MetaResponse:
-    df = get_crime_long()
+def _build_meta(city: str) -> MetaResponse:
+    df = get_crime_long(city)
     years = sorted(int(y) for y in df["year"].dropna().unique())
     months = sorted(int(m) for m in df["month"].dropna().unique())
     boroughs = sorted(str(b) for b in df["borough"].dropna().unique())
@@ -82,6 +82,7 @@ def _build_meta() -> MetaResponse:
         categories=categories,
         boroughs=boroughs,
         tiers=TIERS,
+        city=city,
     )
 
 
@@ -89,9 +90,10 @@ def _build_meta() -> MetaResponse:
 async def lifespan(app: FastAPI):
     # Warm the crime frame, weights, and meta before serving. (Harmless if the
     # serverless adapter skips lifespan — the lru_caches lazy-load on first use.)
-    get_crime_long()
+    city = "london"
+    get_crime_long(city)
     load_weights()
-    _META_CACHE["meta"] = _build_meta()
+    _META_CACHE[f"meta-{city}"] = _build_meta(city)
     yield
 
 
@@ -115,8 +117,8 @@ def health() -> dict:
 
 
 @app.get("/api/meta", response_model=MetaResponse)
-def meta() -> MetaResponse:
-    return _META_CACHE.get("meta") or _build_meta()
+def meta(city: str = "london") -> MetaResponse:
+    return _META_CACHE.get(f"meta-{city}") or _build_meta(city)
 
 
 @lru_cache(maxsize=512)
@@ -129,8 +131,9 @@ def _map_payload(
     level: str,
     metric: str,
     severity_basis: str,
+    city: str,
 ) -> dict:
-    df = get_crime_long()
+    df = get_crime_long(city)
     filtered = filter_crime_df(
         df, categories=categories, tier=tier, year=year, months=months, borough=borough
     )
@@ -171,6 +174,7 @@ def map_values(req: MapRequest) -> MapResponse:
         req.level,
         req.metric,
         req.severity_basis,
+        req.city,
     )
     return MapResponse(**payload)
 

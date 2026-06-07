@@ -9,6 +9,7 @@ import {
   METRIC_OPTIONS,
   TIER_ALL,
   YEAR_ALL,
+  CITIES,
   type FilterState,
 } from '../hooks/useFilters'
 
@@ -270,6 +271,24 @@ export default function Sidebar({ meta, filters, update }: SidebarProps) {
               </button>
             ))}
           </div>
+
+          <SectionTitle>City</SectionTitle>
+
+          <select
+            className={selectClass}
+            value={String(filters.city)}
+            onChange={(e) =>
+              update({
+                city: e.target.value,
+              })
+            }
+          >
+            {(CITIES.map((city) => (
+              <option key={city} value={city}>
+                {city}
+              </option>
+            )))}
+          </select>
         </>
       )}
 

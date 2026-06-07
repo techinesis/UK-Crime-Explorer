@@ -13,7 +13,7 @@ from functools import lru_cache
 import pandas as pd
 
 from core.composite import METRIC_COLUMNS, add_composite_columns
-from core.paths import CRIME_SNAPSHOT, LSOA_TO_WARD_CSV
+from core.paths import crime_snapshot, LSOA_TO_WARD_CSV
 from core.weights import load_weights
 
 # Exact data-load arguments lifted from app.py:298-312. Do not change without a
@@ -74,30 +74,32 @@ CANONICAL_CATEGORY: dict[str, str] = {
 }
 
 
-def _fetch_raw_crime() -> pd.DataFrame:
+def _fetch_raw_crime(city: str) -> pd.DataFrame:
     """Fetch the raw long crime DataFrame from the data client (may hit the
     network for uncached months and the last-updated lookup)."""
     # Imported lazily: api.client loads the LSOA boundaries at import time, and
     # only the fetch path needs it (the snapshot path stays import-light).
     from api.client import Client
 
-    return Client().street_crimes_timerange(
+    return Client(city).street_crimes_timerange(
         TIMERANGE_START_YEAR,
         TIMERANGE_END_YEAR,
-        exclude_year_month=list(TIMERANGE_EXCLUDE_YEAR_MONTH),
+        exclude_year_month=TIMERANGE_EXCLUDE_YEAR_MONTH,
     )
 
 
-def load_raw_crime(refresh: bool = False) -> pd.DataFrame:
+def load_raw_crime(city: str, refresh: bool = False) -> pd.DataFrame:
     """Raw crime rows (RAW_COLUMNS), served from the parquet snapshot when
     available, otherwise fetched and snapshotted."""
-    if not refresh and CRIME_SNAPSHOT.exists():
-        return pd.read_parquet(CRIME_SNAPSHOT)
+    city = city.lower()
+    snapshot = crime_snapshot(city)
+    if not refresh and snapshot.exists():
+        return pd.read_parquet(snapshot)
 
-    raw = _fetch_raw_crime()
+    raw = _fetch_raw_crime(city)
     try:
-        CRIME_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
-        raw.to_parquet(CRIME_SNAPSHOT, index=False)
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        raw.to_parquet(snapshot, index=False)
     except Exception:  # snapshotting is a cache optimisation, never fatal
         pass
     return raw
@@ -150,10 +152,10 @@ def _enrich(raw: pd.DataFrame) -> pd.DataFrame:
     return crime
 
 
-@lru_cache(maxsize=1)
-def get_crime_long() -> pd.DataFrame:
+@lru_cache(maxsize=4)
+def get_crime_long(city: str) -> pd.DataFrame:
     """The enriched long crime DataFrame, loaded once and memoised."""
-    return _enrich(load_raw_crime())
+    return _enrich(load_raw_crime(city))
 
 
 def filter_crime_df(

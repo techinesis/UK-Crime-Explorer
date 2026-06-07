@@ -27,11 +27,14 @@ export default function App() {
   // (ANTHROPIC_API_KEY + deps present). Collapsed by default.
   const chatAvailable = useChatAvailable()
   const [chatOpen, setChatOpen] = useState(false)
-
-  const meta = useQuery({ queryKey: ['meta'], queryFn: fetchMeta })
-  const weights = useQuery({ queryKey: ['weights'], queryFn: fetchWeights })
+  
+  const meta = useQuery({ queryKey: ['meta', filters.city], queryFn: () => fetchMeta(filters.city) })
+  const weights = useQuery({ queryKey: ['weights', filters.city], queryFn: fetchWeights })
 
   const { boundaries, map, boroughMap } = useCrimeData(filters)
+
+  console.log(meta.data);
+  console.log(map.data);
 
   const isForecast = filters.mode === 'forecast'
 
@@ -93,6 +96,7 @@ export default function App() {
               borough={filters.borough}
               metricLabel={caption}
               theme={theme}
+              meta={meta.data}
             />
           </div>
 

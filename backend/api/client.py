@@ -4,7 +4,6 @@ from typing import Optional
 from shapely.geometry import Point
 import time
 from datetime import datetime
-from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import tarfile
@@ -17,15 +16,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # client works regardless of the process working directory. This is the only
 # change from the original Streamlit-era client.py, which used CWD-relative
 # paths.
-from core.paths import CACHE_DIR as _CACHE_DIR, DATA_DIR as _DATA_DIR
+from core.paths import CACHE_DIR as _CACHE_DIR, DATA_DIR as _DATA_DIR, LSOA_BOUNDARIES
+
+
+type BoundingBox = tuple[float, float, float, float]
 
 
 # A file that if created indicates that the file data CRIME_DATA_PATH has been extracted
 CRIME_DATA_EXTRACTED_PATH = _CACHE_DIR / "crime-data" / "extracted"
 CRIME_CACHE_PATH = _CACHE_DIR / "crime-data"
-LSOA_CACHE_PATH = _CACHE_DIR / "london_lsoa_boundaries.geojson"
 
-LSOA_DATA_PATH = _DATA_DIR / "statistical-gis-boundaries-london" / "ESRI" / "LSOA_2011_London_gen_MHW.shp"
 CRIME_DATA_PATH = _DATA_DIR / "crime-data.tar.xz"
 
 SCHEMA_14_MARKER_MAPPING = {
@@ -99,11 +99,13 @@ def _given_date_or_now(year: int, month: int) -> tuple[int, int]:
     return year, month
 
 
-def make_london_polys(cols: int = 3, rows: int = 3) -> list[dict]:
-    W = -0.52
-    S = 51.28
-    E = 0.35
-    N = 51.70
+def make_box_polys(
+    bounding_box: tuple[float, float, float, float], cols: int = 3, rows: int = 3
+) -> list[dict]:
+    W = bounding_box[0]
+    S = bounding_box[1]
+    E = bounding_box[2]
+    N = bounding_box[3]
 
     lon_step = (E - W) / cols
     lat_step = (N - S) / rows
@@ -225,30 +227,8 @@ def prepare_kaggle_crime_data():
     return df
 
 
-def load_london_lsoas() -> gpd.GeoDataFrame:
-    if LSOA_CACHE_PATH.exists():
-        return gpd.read_file(LSOA_CACHE_PATH)
-
-    gdf = gpd.read_file(LSOA_DATA_PATH)
-    gdf = gdf[["LSOA11CD", "LSOA11NM", "LAD11NM", "geometry"]].rename(
-        columns={
-            "LSOA11CD": "lsoa_code",
-            "LSOA11NM": "lsoa_name",
-            "LAD11NM": "borough",
-        }
-    )
-    # Ensure strings
-    gdf["lsoa_code"] = gdf["lsoa_code"].astype(str)
-    # Convert to WGS84 for web maps
-    gdf = gdf.to_crs(epsg=4326)
-    # Simplify geometries to make Folium much smoother
-    # Increase this slightly if the app is still slow, for example 0.0008
-    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.0005, preserve_topology=True)
-
-    LSOA_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    gdf.to_file(LSOA_CACHE_PATH, driver="GeoJSON")
-
-    return gdf
+def load_lsoas() -> gpd.GeoDataFrame:
+    return gpd.read_file(LSOA_BOUNDARIES)
 
 
 class CrimeCategory:
@@ -266,13 +246,97 @@ class CrimeCategory:
         return "{} ({})".format(self.__name, self.__url)
 
 
+_LONDON_BOROUGHS = [
+    "City of London",
+    "City of Westminster",
+    "Kensington and Chelsea",
+    "Hammersmith and Fulham",
+    "Wandsworth",
+    "Lambeth",
+    "Southwark",
+    "Tower Hamlets",
+    "Hackney",
+    "Islington",
+    "Camden",
+    "Brent",
+    "Ealing",
+    "Hounslow",
+    "Richmond upon Thames",
+    "Kingston upon Thames",
+    "Merton",
+    "Sutton",
+    "Croydon",
+    "Bromley",
+    "Lewisham",
+    "Greenwich",
+    "Bexley",
+    "Havering",
+    "Barking and Dagenham",
+    "Redbridge",
+    "Newham",
+    "Waltham Forest",
+    "Haringey",
+    "Enfield",
+    "Barnet",
+    "Harrow",
+    "Hillingdon",
+]
+
+_BIRMINGHAM_BOROUGHS = [
+    "Birmingham",
+    "Coventry",
+    "Dudley",
+    "Sandwell",
+    "Solihull",
+    "Walsall",
+    "Wolverhampton",
+]
+
+_MANCHESTER_BOROUGHS = [
+    "Bury",
+    "Manchester",
+    "Oldham",
+    "Rochdale",
+    "Salford",
+    "Stockport",
+    "Tameside",
+    "Trafford",
+]
+
+_LIVERPOOL_BOROUGHS = [
+    "Knowsley",
+    "Liverpool",
+    "Sefton",
+    "St. Helens",
+    "Wirral",
+    "West Lancashire",
+]
+
 class Client:
-    __london_polys = make_london_polys()
-    __lsoa_gdf = load_london_lsoas()
+    __city_meta: dict[str, tuple[BoundingBox, list[str] | None]] = {
+        "london": ((-0.52, 51.28, 0.35, 51.7), _LONDON_BOROUGHS),
+        "birmingham": ((-2.20, 52.32, -1.40, 52.70), _BIRMINGHAM_BOROUGHS),
+        "manchester": ((-2.82, 53.30, -1.90, 53.71), _MANCHESTER_BOROUGHS),
+        "liverpool": ((-3.25, 53.24, -2.55, 53.73), _LIVERPOOL_BOROUGHS),
+    }
+    __city: str
+    __bounding_box: BoundingBox
+    __box_polys: list[dict]
+    __lsoa_gdf = load_lsoas()
     __api_base_url: str = "https://data.police.uk/api/"
 
-    def __init__(self):
-        pass
+    def __init__(self, city: str = "london"):
+        city = city.lower()
+        if city not in self.__city_meta:
+            raise ValueError(f"'{city}' is not in the list of supported cities")
+
+        self.__city = city
+        self.__bounding_box = self.__city_meta[city][0]
+        self.__box_polys = make_box_polys(self.__bounding_box)
+
+    @staticmethod
+    def supported_cities() -> list[str]:
+        return list(Client.__city_meta.keys())
 
     def __url(self, endpoint: str) -> str:
         return self.__api_base_url + endpoint
@@ -301,12 +365,18 @@ class Client:
         )
 
         enriched = []
+        city_boroughs = self.__city_meta[self.__city][1]
         for _, row in joined.iterrows():
             crime = row["_crime"].copy()
 
             def _val(field):
                 v = row.get(field)
                 return None if pd.isna(v) else v
+
+            # Filter out the borough's that are within the polygon, but don't actually belong to the city
+            borough = _val("borough")
+            if city_boroughs is not None and borough not in city_boroughs:
+                continue
 
             crime["lsoa_code"] = _val("lsoa_code")
             crime["lsoa_name"] = _val("lsoa_name")
@@ -364,7 +434,7 @@ class Client:
         return data if not enriched else self._enrich_with_lsoa(data)
 
     def street_crimes(self, date: str, category: str = "all-crime") -> pd.DataFrame:
-        cache_path = CRIME_CACHE_PATH.joinpath(f"{date}.csv")
+        cache_path = CRIME_CACHE_PATH.joinpath(self.__city).joinpath(f"{date}.csv")
         if category == "all-crime" and cache_path.exists():
             return pd.read_csv(cache_path)
 
@@ -385,7 +455,7 @@ class Client:
         with ThreadPoolExecutor(max_workers=8) as executor:
             futures = {
                 executor.submit(_fetch_poly, poly, category, date): poly
-                for poly in self.__london_polys
+                for poly in self.__box_polys
             }
             for future in tqdm(as_completed(futures), total=len(futures), desc="Poly", ascii=True):
                 for c in tqdm(future.result(), desc="Crime", ascii=True):
@@ -441,7 +511,9 @@ class Client:
         exclude_year_month = exclude_year_month if exclude_year_month is not None else []
 
         try:
-            kaggle_df = prepare_kaggle_crime_data()
+            kaggle_df = None
+            if self.__city == "london":
+                kaggle_df = prepare_kaggle_crime_data()
             if not CRIME_DATA_EXTRACTED_PATH.exists():
                 prepare_premade_crime_data()
         except KeyboardInterrupt:
@@ -459,7 +531,7 @@ class Client:
 
         assert start_year <= end_year
 
-        dfs = [kaggle_df]
+        dfs = [kaggle_df] if kaggle_df else []
 
         for year in range(start_year, end_year + 1):
             if year in exclude_years:

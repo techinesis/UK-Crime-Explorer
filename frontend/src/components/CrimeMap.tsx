@@ -4,8 +4,9 @@ import { GeoJsonLayer } from '@deck.gl/layers'
 import { Map } from 'react-map-gl/maplibre'
 import type { Feature, Geometry } from 'geojson'
 import { rgbaForValue, type RGBA } from '../lib/colors'
-import type { BoundaryCollection, BoundaryProps, Level, MapResponse } from '../lib/types'
+import type { BoundaryCollection, BoundaryProps, Level, MapResponse, MetaResponse } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
+import { CITIES } from '../hooks/useFilters'
 
 const BASEMAP: Record<Theme, string> = {
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
@@ -22,7 +23,19 @@ const TOOLTIP_STYLE: Record<Theme, { backgroundColor: string; color: string }> =
   dark: { backgroundColor: 'rgba(15,23,42,0.95)', color: '#f1f5f9' },
 }
 
+// TODO: use dynamic values based on city
 const LONDON_VIEW = { longitude: -0.1278, latitude: 51.5074, zoom: 9.2, minZoom: 9, maxZoom: 16 }
+
+interface Dict {
+  [key: string]: any
+}
+
+const CITY_VIEWS: Dict = {
+  "london": { longitude: -0.1278, latitude: 51.5074, zoom: 9.2, minZoom: 9, maxZoom: 16 },
+  "birmingham": { longitude: -1.89983, latitude: 52.48142, zoom: 9.2, minZoom: 9, maxZoom: 16 },
+  "manchester": { longitude: -2.23743, latitude: 53.48095, zoom: 9.2, minZoom: 9, maxZoom: 16 },
+  "liverpool": { longitude: -2.983333, latitude: 53.400002, zoom: 9.2, minZoom: 9, maxZoom: 16 },
+}
 
 const ID_PROP: Record<Level, string> = {
   lsoa: 'lsoa_code',
@@ -84,6 +97,7 @@ interface CrimeMapProps {
   borough: string
   metricLabel: string
   theme: Theme
+  meta?: MetaResponse
 }
 
 export default function CrimeMap({
@@ -93,6 +107,7 @@ export default function CrimeMap({
   borough,
   metricLabel,
   theme,
+  meta,
 }: CrimeMapProps) {
   const [viewState, setViewState] = useState<ViewState>(LONDON_VIEW)
   const idProp = ID_PROP[level]
@@ -101,22 +116,39 @@ export default function CrimeMap({
   const vmin = map?.vmin ?? 0
   const vmax = map?.vmax ?? 1
 
+  const city = meta?.city ?? CITIES[0]
+
+  const allowedBoroughs = useMemo(
+    () => new Set(meta?.boroughs ?? []),
+    [meta?.boroughs.join('\x00'), city]
+  )
+
+  const filteredBoundaries = useMemo<BoundaryCollection | null>(() => {
+    if (!boundaries) return null
+    if (!allowedBoroughs.size) return null
+
+    const features = boundaries.features.filter(f =>
+      allowedBoroughs.has(f.properties.borough as string)
+    )
+    return { ...boundaries, features }
+  }, [boundaries, allowedBoroughs, city])
+
   // Refit to the selected borough (or back to London) when it changes.
   useEffect(() => {
-    if (borough === 'All boroughs' || !boundaries) {
-      setViewState(LONDON_VIEW)
+    if (borough === 'All boroughs' || !filteredBoundaries) {
+      setViewState(CITY_VIEWS[city.toLowerCase()])
       return
     }
-    const next = boroughView(boundaries.features, borough)
+    const next = boroughView(filteredBoundaries.features, borough)
     if (next) setViewState(next)
-  }, [borough, boundaries])
+  }, [borough, filteredBoundaries])
 
   const layers = useMemo(() => {
-    if (!boundaries) return []
+    if (!filteredBoundaries) return []
     return [
       new GeoJsonLayer<BoundaryProps>({
         id: `crime-${level}`,
-        data: boundaries,
+        data: filteredBoundaries,
         pickable: true,
         stroked: true,
         filled: true,
@@ -127,7 +159,7 @@ export default function CrimeMap({
         updateTriggers: { getFillColor: [values, vmin, vmax, idProp], getLineColor: [theme] },
       }),
     ]
-  }, [boundaries, values, vmin, vmax, idProp, level, theme])
+  }, [filteredBoundaries, values, vmin, vmax, idProp, level, theme, city])
 
   return (
     <DeckGL

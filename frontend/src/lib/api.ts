@@ -22,8 +22,10 @@ async function getJSON<T>(url: string): Promise<T> {
   return (await res.json()) as T
 }
 
-export async function fetchMeta(): Promise<MetaResponse> {
-  return getJSON<MetaResponse>('/api/meta')
+export async function fetchMeta(city: string): Promise<MetaResponse> {
+  const params = new URLSearchParams()
+  params.append("city", city.toLowerCase())
+  return getJSON<MetaResponse>(`/api/meta?${params}`)
 }
 
 export async function fetchWeights(): Promise<WeightRow[]> {
