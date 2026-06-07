@@ -1,0 +1,345 @@
+Month,LSOA code,Crime type,actual_crimes,predicted_crimes,prediction_type
+2025-09,E01000001,Bicycle theft,1,2,test_70_30
+2025-09,E01000001,Criminal damage and arson,2,2,test_70_30
+2025-09,E01000001,Drugs,2,1,test_70_30
+2025-09,E01000001,Other theft,2,2,test_70_30
+2025-09,E01000001,Public order,1,1,test_70_30
+2025-09,E01000001,Shoplifting,1,1,test_70_30
+2025-09,E01000001,Vehicle crime,1,1,test_70_30
+2025-09,E01000001,Violence and sexual offences,1,1,test_70_30
+2025-09,E01000002,Bicycle theft,5,3,test_70_30
+2025-09,E01000002,Other theft,7,5,test_70_30
+2025-09,E01000002,Robbery,1,1,test_70_30
+2025-09,E01000002,Shoplifting,15,12,test_70_30
+2025-09,E01000002,Theft from the person,1,2,test_70_30
+2025-09,E01000002,Violence and sexual offences,3,2,test_70_30
+2025-09,E01000003,Anti-social behaviour,1,2,test_70_30
+2025-09,E01000003,Bicycle theft,2,1,test_70_30
+2025-09,E01000003,Drugs,13,6,test_70_30
+2025-09,E01000003,Other theft,1,1,test_70_30
+2025-09,E01000003,Theft from the person,1,8,test_70_30
+2025-09,E01000003,Violence and sexual offences,1,1,test_70_30
+2025-09,E01000005,Anti-social behaviour,1,2,test_70_30
+2025-09,E01000005,Bicycle theft,3,4,test_70_30
+2025-09,E01000005,Burglary,4,1,test_70_30
+2025-09,E01000005,Criminal damage and arson,3,2,test_70_30
+2025-09,E01000005,Drugs,1,1,test_70_30
+2025-09,E01000005,Other theft,6,9,test_70_30
+2025-09,E01000005,Public order,3,2,test_70_30
+2025-09,E01000005,Robbery,1,1,test_70_30
+2025-09,E01000005,Shoplifting,3,3,test_70_30
+2025-09,E01000005,Theft from the person,1,4,test_70_30
+2025-09,E01000005,Vehicle crime,1,2,test_70_30
+2025-09,E01000005,Violence and sexual offences,5,12,test_70_30
+2025-09,E01000914,Other theft,1,1,test_70_30
+2025-09,E01000914,Shoplifting,1,1,test_70_30
+2025-09,E01000917,Other theft,1,1,test_70_30
+2025-09,E01000917,Theft from the person,1,1,test_70_30
+2025-09,E01000918,Violence and sexual offences,1,1,test_70_30
+2025-09,E01001427,Other crime,1,1,test_70_30
+2025-09,E01002637,Other crime,1,1,test_70_30
+2025-09,E01002695,Drugs,1,1,test_70_30
+2025-09,E01002704,Other crime,1,1,test_70_30
+2025-09,E01002724,Theft from the person,1,2,test_70_30
+2025-09,E01002783,Public order,1,1,test_70_30
+2025-09,E01003013,Violence and sexual offences,1,1,test_70_30
+2025-09,E01003979,Violence and sexual offences,1,1,test_70_30
+2025-09,E01004290,Possession of weapons,1,2,test_70_30
+2025-09,E01004293,Criminal damage and arson,1,1,test_70_30
+2025-09,E01004293,Theft from the person,1,1,test_70_30
+2025-09,E01004295,Drugs,1,1,test_70_30
+2025-09,E01004307,Criminal damage and arson,1,1,test_70_30
+2025-09,E01004307,Theft from the person,1,2,test_70_30
+2025-09,E01004307,Violence and sexual offences,1,1,test_70_30
+2025-09,E01004308,Drugs,1,1,test_70_30
+2025-09,E01004322,Violence and sexual offences,1,1,test_70_30
+2025-09,E01004727,Violence and sexual offences,1,1,test_70_30
+2025-09,E01005962,Other crime,1,1,test_70_30
+2025-09,E01011791,Other crime,1,1,test_70_30
+2025-09,E01032739,Anti-social behaviour,10,11,test_70_30
+2025-09,E01032739,Bicycle theft,14,23,test_70_30
+2025-09,E01032739,Burglary,28,23,test_70_30
+2025-09,E01032739,Criminal damage and arson,8,18,test_70_30
+2025-09,E01032739,Drugs,14,22,test_70_30
+2025-09,E01032739,Other crime,5,4,test_70_30
+2025-09,E01032739,Other theft,123,125,test_70_30
+2025-09,E01032739,Possession of weapons,1,8,test_70_30
+2025-09,E01032739,Public order,27,38,test_70_30
+2025-09,E01032739,Robbery,13,17,test_70_30
+2025-09,E01032739,Shoplifting,74,92,test_70_30
+2025-09,E01032739,Theft from the person,38,57,test_70_30
+2025-09,E01032739,Vehicle crime,2,8,test_70_30
+2025-09,E01032739,Violence and sexual offences,81,86,test_70_30
+2025-09,E01032740,Anti-social behaviour,3,3,test_70_30
+2025-09,E01032740,Burglary,2,2,test_70_30
+2025-09,E01032740,Criminal damage and arson,5,3,test_70_30
+2025-09,E01032740,Drugs,3,4,test_70_30
+2025-09,E01032740,Other theft,11,17,test_70_30
+2025-09,E01032740,Public order,9,7,test_70_30
+2025-09,E01032740,Robbery,7,2,test_70_30
+2025-09,E01032740,Shoplifting,11,7,test_70_30
+2025-09,E01032740,Theft from the person,14,27,test_70_30
+2025-09,E01032740,Vehicle crime,1,2,test_70_30
+2025-09,E01032740,Violence and sexual offences,5,14,test_70_30
+2025-09,E01033490,Bicycle theft,2,1,test_70_30
+2025-09,E01033490,Shoplifting,1,1,test_70_30
+2025-09,E01033708,Other theft,3,1,test_70_30
+2025-09,E01033708,Theft from the person,1,1,test_70_30
+2025-09,E01033885,Robbery,1,1,test_70_30
+2025-09,E01033991,Bicycle theft,1,1,test_70_30
+2025-09,E01035697,Drugs,2,1,test_70_30
+2025-09,W01000627,Other crime,1,1,test_70_30
+2025-10,E01000001,Anti-social behaviour,1,1,test_70_30
+2025-10,E01000001,Bicycle theft,6,2,test_70_30
+2025-10,E01000001,Drugs,2,1,test_70_30
+2025-10,E01000001,Other theft,3,2,test_70_30
+2025-10,E01000001,Violence and sexual offences,1,1,test_70_30
+2025-10,E01000002,Bicycle theft,12,3,test_70_30
+2025-10,E01000002,Burglary,1,1,test_70_30
+2025-10,E01000002,Criminal damage and arson,2,1,test_70_30
+2025-10,E01000002,Other theft,10,5,test_70_30
+2025-10,E01000002,Public order,3,2,test_70_30
+2025-10,E01000002,Shoplifting,1,12,test_70_30
+2025-10,E01000002,Theft from the person,2,2,test_70_30
+2025-10,E01000002,Vehicle crime,2,1,test_70_30
+2025-10,E01000002,Violence and sexual offences,2,2,test_70_30
+2025-10,E01000003,Anti-social behaviour,2,2,test_70_30
+2025-10,E01000003,Bicycle theft,2,1,test_70_30
+2025-10,E01000003,Burglary,2,1,test_70_30
+2025-10,E01000003,Drugs,6,6,test_70_30
+2025-10,E01000003,Other theft,1,1,test_70_30
+2025-10,E01000003,Violence and sexual offences,1,1,test_70_30
+2025-10,E01000005,Anti-social behaviour,1,2,test_70_30
+2025-10,E01000005,Bicycle theft,2,4,test_70_30
+2025-10,E01000005,Burglary,9,1,test_70_30
+2025-10,E01000005,Criminal damage and arson,1,2,test_70_30
+2025-10,E01000005,Drugs,1,1,test_70_30
+2025-10,E01000005,Other theft,11,9,test_70_30
+2025-10,E01000005,Possession of weapons,1,1,test_70_30
+2025-10,E01000005,Public order,4,2,test_70_30
+2025-10,E01000005,Robbery,1,1,test_70_30
+2025-10,E01000005,Shoplifting,1,3,test_70_30
+2025-10,E01000005,Theft from the person,2,4,test_70_30
+2025-10,E01000005,Vehicle crime,1,2,test_70_30
+2025-10,E01000005,Violence and sexual offences,9,12,test_70_30
+2025-10,E01000036,Drugs,1,1,test_70_30
+2025-10,E01000914,Theft from the person,1,1,test_70_30
+2025-10,E01000917,Drugs,1,1,test_70_30
+2025-10,E01000917,Other theft,1,1,test_70_30
+2025-10,E01002724,Violence and sexual offences,1,1,test_70_30
+2025-10,E01004206,Bicycle theft,2,1,test_70_30
+2025-10,E01004293,Drugs,1,1,test_70_30
+2025-10,E01004307,Other theft,1,2,test_70_30
+2025-10,E01004307,Shoplifting,1,1,test_70_30
+2025-10,E01004310,Drugs,1,1,test_70_30
+2025-10,E01004735,Other theft,1,1,test_70_30
+2025-10,E01004735,Theft from the person,1,1,test_70_30
+2025-10,E01027022,Violence and sexual offences,1,1,test_70_30
+2025-10,E01032584,Drugs,1,1,test_70_30
+2025-10,E01032739,Anti-social behaviour,3,11,test_70_30
+2025-10,E01032739,Bicycle theft,7,23,test_70_30
+2025-10,E01032739,Burglary,26,23,test_70_30
+2025-10,E01032739,Criminal damage and arson,21,18,test_70_30
+2025-10,E01032739,Drugs,15,22,test_70_30
+2025-10,E01032739,Other crime,2,4,test_70_30
+2025-10,E01032739,Other theft,133,125,test_70_30
+2025-10,E01032739,Possession of weapons,2,8,test_70_30
+2025-10,E01032739,Public order,38,38,test_70_30
+2025-10,E01032739,Robbery,16,17,test_70_30
+2025-10,E01032739,Shoplifting,95,92,test_70_30
+2025-10,E01032739,Theft from the person,39,57,test_70_30
+2025-10,E01032739,Vehicle crime,4,8,test_70_30
+2025-10,E01032739,Violence and sexual offences,84,86,test_70_30
+2025-10,E01032740,Anti-social behaviour,1,3,test_70_30
+2025-10,E01032740,Bicycle theft,3,8,test_70_30
+2025-10,E01032740,Burglary,10,2,test_70_30
+2025-10,E01032740,Criminal damage and arson,4,3,test_70_30
+2025-10,E01032740,Drugs,2,4,test_70_30
+2025-10,E01032740,Other crime,1,1,test_70_30
+2025-10,E01032740,Other theft,35,17,test_70_30
+2025-10,E01032740,Possession of weapons,1,2,test_70_30
+2025-10,E01032740,Public order,3,7,test_70_30
+2025-10,E01032740,Robbery,3,2,test_70_30
+2025-10,E01032740,Shoplifting,8,7,test_70_30
+2025-10,E01032740,Theft from the person,17,27,test_70_30
+2025-10,E01032740,Violence and sexual offences,13,14,test_70_30
+2025-10,E01033708,Public order,1,1,test_70_30
+2025-10,E01033868,Violence and sexual offences,1,1,test_70_30
+2025-10,E01035643,Other theft,1,1,test_70_30
+2025-10,E01035687,Drugs,1,1,test_70_30
+2025-10,E01035697,Drugs,1,1,test_70_30
+2025-11,E01000001,Burglary,1,1,test_70_30
+2025-11,E01000001,Other crime,1,1,test_70_30
+2025-11,E01000001,Other theft,3,2,test_70_30
+2025-11,E01000001,Public order,1,1,test_70_30
+2025-11,E01000001,Shoplifting,2,1,test_70_30
+2025-11,E01000001,Theft from the person,1,4,test_70_30
+2025-11,E01000001,Violence and sexual offences,1,1,test_70_30
+2025-11,E01000002,Anti-social behaviour,1,1,test_70_30
+2025-11,E01000002,Bicycle theft,9,3,test_70_30
+2025-11,E01000002,Burglary,2,1,test_70_30
+2025-11,E01000002,Other theft,7,5,test_70_30
+2025-11,E01000002,Public order,3,2,test_70_30
+2025-11,E01000002,Shoplifting,4,12,test_70_30
+2025-11,E01000002,Theft from the person,1,2,test_70_30
+2025-11,E01000002,Violence and sexual offences,2,2,test_70_30
+2025-11,E01000003,Anti-social behaviour,1,2,test_70_30
+2025-11,E01000003,Bicycle theft,2,1,test_70_30
+2025-11,E01000003,Burglary,2,1,test_70_30
+2025-11,E01000003,Drugs,1,6,test_70_30
+2025-11,E01000003,Other theft,6,1,test_70_30
+2025-11,E01000003,Violence and sexual offences,1,1,test_70_30
+2025-11,E01000005,Burglary,7,1,test_70_30
+2025-11,E01000005,Criminal damage and arson,3,2,test_70_30
+2025-11,E01000005,Drugs,4,1,test_70_30
+2025-11,E01000005,Other theft,14,9,test_70_30
+2025-11,E01000005,Public order,6,2,test_70_30
+2025-11,E01000005,Shoplifting,3,3,test_70_30
+2025-11,E01000005,Theft from the person,2,4,test_70_30
+2025-11,E01000005,Violence and sexual offences,11,12,test_70_30
+2025-11,E01000347,Violence and sexual offences,1,1,test_70_30
+2025-11,E01000731,Other crime,1,1,test_70_30
+2025-11,E01000914,Criminal damage and arson,1,1,test_70_30
+2025-11,E01000914,Other theft,2,1,test_70_30
+2025-11,E01000916,Drugs,1,1,test_70_30
+2025-11,E01000916,Robbery,1,1,test_70_30
+2025-11,E01000916,Violence and sexual offences,1,1,test_70_30
+2025-11,E01000917,Drugs,1,1,test_70_30
+2025-11,E01000917,Other theft,1,1,test_70_30
+2025-11,E01000917,Violence and sexual offences,1,1,test_70_30
+2025-11,E01001618,Other crime,1,1,test_70_30
+2025-11,E01001898,Theft from the person,1,1,test_70_30
+2025-11,E01003013,Violence and sexual offences,1,1,test_70_30
+2025-11,E01003016,Drugs,1,1,test_70_30
+2025-11,E01003108,Drugs,1,1,test_70_30
+2025-11,E01003489,Violence and sexual offences,1,1,test_70_30
+2025-11,E01003933,Violence and sexual offences,1,1,test_70_30
+2025-11,E01003981,Theft from the person,1,1,test_70_30
+2025-11,E01004270,Violence and sexual offences,2,1,test_70_30
+2025-11,E01004293,Criminal damage and arson,1,1,test_70_30
+2025-11,E01004293,Theft from the person,1,1,test_70_30
+2025-11,E01004434,Other crime,1,1,test_70_30
+2025-11,E01009650,Other theft,1,1,test_70_30
+2025-11,E01010930,Other crime,1,1,test_70_30
+2025-11,E01011226,Other crime,1,1,test_70_30
+2025-11,E01032739,Anti-social behaviour,3,11,test_70_30
+2025-11,E01032739,Bicycle theft,11,23,test_70_30
+2025-11,E01032739,Burglary,24,23,test_70_30
+2025-11,E01032739,Criminal damage and arson,16,18,test_70_30
+2025-11,E01032739,Drugs,15,22,test_70_30
+2025-11,E01032739,Other crime,5,4,test_70_30
+2025-11,E01032739,Other theft,116,125,test_70_30
+2025-11,E01032739,Possession of weapons,2,8,test_70_30
+2025-11,E01032739,Public order,34,38,test_70_30
+2025-11,E01032739,Robbery,19,17,test_70_30
+2025-11,E01032739,Shoplifting,81,92,test_70_30
+2025-11,E01032739,Theft from the person,35,57,test_70_30
+2025-11,E01032739,Vehicle crime,3,8,test_70_30
+2025-11,E01032739,Violence and sexual offences,86,86,test_70_30
+2025-11,E01032740,Anti-social behaviour,2,3,test_70_30
+2025-11,E01032740,Bicycle theft,1,8,test_70_30
+2025-11,E01032740,Burglary,5,2,test_70_30
+2025-11,E01032740,Criminal damage and arson,3,3,test_70_30
+2025-11,E01032740,Drugs,5,4,test_70_30
+2025-11,E01032740,Other theft,24,17,test_70_30
+2025-11,E01032740,Possession of weapons,1,2,test_70_30
+2025-11,E01032740,Public order,9,7,test_70_30
+2025-11,E01032740,Robbery,2,2,test_70_30
+2025-11,E01032740,Shoplifting,7,7,test_70_30
+2025-11,E01032740,Theft from the person,8,27,test_70_30
+2025-11,E01032740,Vehicle crime,2,2,test_70_30
+2025-11,E01032740,Violence and sexual offences,8,14,test_70_30
+2025-11,E01032767,Criminal damage and arson,1,1,test_70_30
+2025-11,E01032767,Other theft,1,1,test_70_30
+2025-11,E01033708,Drugs,1,1,test_70_30
+2025-11,E01033884,Other theft,1,1,test_70_30
+2025-11,E01035687,Violence and sexual offences,2,1,test_70_30
+2025-12,E01000001,Bicycle theft,4,2,test_70_30
+2025-12,E01000001,Criminal damage and arson,1,2,test_70_30
+2025-12,E01000001,Drugs,2,1,test_70_30
+2025-12,E01000001,Other theft,3,2,test_70_30
+2025-12,E01000001,Robbery,1,1,test_70_30
+2025-12,E01000001,Theft from the person,3,4,test_70_30
+2025-12,E01000001,Vehicle crime,2,1,test_70_30
+2025-12,E01000002,Bicycle theft,6,3,test_70_30
+2025-12,E01000002,Burglary,1,1,test_70_30
+2025-12,E01000002,Criminal damage and arson,1,1,test_70_30
+2025-12,E01000002,Drugs,2,1,test_70_30
+2025-12,E01000002,Other theft,3,5,test_70_30
+2025-12,E01000002,Public order,1,2,test_70_30
+2025-12,E01000002,Robbery,2,1,test_70_30
+2025-12,E01000002,Shoplifting,13,12,test_70_30
+2025-12,E01000002,Theft from the person,2,2,test_70_30
+2025-12,E01000002,Violence and sexual offences,4,2,test_70_30
+2025-12,E01000003,Anti-social behaviour,1,2,test_70_30
+2025-12,E01000003,Bicycle theft,1,1,test_70_30
+2025-12,E01000003,Burglary,2,1,test_70_30
+2025-12,E01000003,Drugs,6,6,test_70_30
+2025-12,E01000003,Other theft,1,1,test_70_30
+2025-12,E01000003,Violence and sexual offences,2,1,test_70_30
+2025-12,E01000005,Anti-social behaviour,1,2,test_70_30
+2025-12,E01000005,Burglary,5,1,test_70_30
+2025-12,E01000005,Criminal damage and arson,1,2,test_70_30
+2025-12,E01000005,Drugs,3,1,test_70_30
+2025-12,E01000005,Other theft,8,9,test_70_30
+2025-12,E01000005,Public order,6,2,test_70_30
+2025-12,E01000005,Robbery,1,1,test_70_30
+2025-12,E01000005,Shoplifting,24,3,test_70_30
+2025-12,E01000005,Theft from the person,3,4,test_70_30
+2025-12,E01000005,Violence and sexual offences,8,12,test_70_30
+2025-12,E01000234,Violence and sexual offences,1,1,test_70_30
+2025-12,E01000914,Shoplifting,1,1,test_70_30
+2025-12,E01000914,Violence and sexual offences,2,1,test_70_30
+2025-12,E01000917,Bicycle theft,1,1,test_70_30
+2025-12,E01002560,Other crime,1,1,test_70_30
+2025-12,E01002704,Robbery,1,1,test_70_30
+2025-12,E01002724,Theft from the person,1,2,test_70_30
+2025-12,E01003929,Theft from the person,1,1,test_70_30
+2025-12,E01003941,Theft from the person,1,1,test_70_30
+2025-12,E01004035,Drugs,1,1,test_70_30
+2025-12,E01004208,Public order,1,1,test_70_30
+2025-12,E01004208,Violence and sexual offences,1,2,test_70_30
+2025-12,E01004296,Drugs,1,1,test_70_30
+2025-12,E01004306,Violence and sexual offences,1,1,test_70_30
+2025-12,E01004309,Violence and sexual offences,1,1,test_70_30
+2025-12,E01004321,Drugs,1,1,test_70_30
+2025-12,E01004425,Drugs,1,1,test_70_30
+2025-12,E01004661,Shoplifting,1,1,test_70_30
+2025-12,E01004719,Drugs,1,1,test_70_30
+2025-12,E01004735,Burglary,3,1,test_70_30
+2025-12,E01004735,Other theft,1,1,test_70_30
+2025-12,E01008940,Other crime,1,1,test_70_30
+2025-12,E01009655,Violence and sexual offences,1,1,test_70_30
+2025-12,E01028669,Other crime,1,1,test_70_30
+2025-12,E01032739,Anti-social behaviour,3,11,test_70_30
+2025-12,E01032739,Bicycle theft,7,23,test_70_30
+2025-12,E01032739,Burglary,27,23,test_70_30
+2025-12,E01032739,Criminal damage and arson,15,18,test_70_30
+2025-12,E01032739,Drugs,18,22,test_70_30
+2025-12,E01032739,Other crime,2,4,test_70_30
+2025-12,E01032739,Other theft,119,125,test_70_30
+2025-12,E01032739,Possession of weapons,3,8,test_70_30
+2025-12,E01032739,Public order,34,38,test_70_30
+2025-12,E01032739,Robbery,18,17,test_70_30
+2025-12,E01032739,Shoplifting,77,92,test_70_30
+2025-12,E01032739,Theft from the person,67,57,test_70_30
+2025-12,E01032739,Vehicle crime,4,8,test_70_30
+2025-12,E01032739,Violence and sexual offences,141,86,test_70_30
+2025-12,E01032740,Bicycle theft,1,8,test_70_30
+2025-12,E01032740,Burglary,9,2,test_70_30
+2025-12,E01032740,Criminal damage and arson,4,3,test_70_30
+2025-12,E01032740,Drugs,3,4,test_70_30
+2025-12,E01032740,Other theft,7,17,test_70_30
+2025-12,E01032740,Public order,6,7,test_70_30
+2025-12,E01032740,Robbery,5,2,test_70_30
+2025-12,E01032740,Shoplifting,2,7,test_70_30
+2025-12,E01032740,Theft from the person,10,27,test_70_30
+2025-12,E01032740,Vehicle crime,1,2,test_70_30
+2025-12,E01032740,Violence and sexual offences,14,14,test_70_30
+2025-12,E01032767,Violence and sexual offences,1,1,test_70_30
+2025-12,E01033490,Burglary,1,1,test_70_30
+2025-12,E01033490,Drugs,1,1,test_70_30
+2025-12,E01033708,Other theft,1,1,test_70_30
+2025-12,E01033708,Public order,1,1,test_70_30
+2025-12,E01033708,Theft from the person,1,1,test_70_30
+2025-12,E01035697,Public order,1,1,test_70_30
