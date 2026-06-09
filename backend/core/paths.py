@@ -30,8 +30,8 @@ def crime_snapshot(city: str) -> Path:
 
 # Source boundary GeoJSON, used only by ETL / pre-bake tooling (not the API).
 LSOA_BOUNDARIES = DATA_DIR / "lsoa_boundaries_clean.geojson"
-BOROUGH_BOUNDARIES = DATA_DIR / "london_borough_boundaries_clean.geojson"
-WARD_BOUNDARIES = DATA_DIR / "london_ward_boundaries_clean.geojson"
+BOROUGH_BOUNDARIES = DATA_DIR / "borough_boundaries_clean.geojson"
+WARD_BOUNDARIES = DATA_DIR / "ward_boundaries_clean.geojson"
 BOUNDARY_FILE_BY_LEVEL = {
     "lsoa": LSOA_BOUNDARIES,
     "ward": WARD_BOUNDARIES,

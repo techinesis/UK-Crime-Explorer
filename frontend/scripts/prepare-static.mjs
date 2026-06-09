@@ -18,8 +18,8 @@ mkdirSync(outDir, { recursive: true })
 
 const LEVELS = {
     lsoa: { file: 'lsoa_boundaries_clean.geojson', id: 'lsoa_code', keep: ['lsoa_code', 'lsoa_name', 'borough'] },
-    ward: { file: 'london_ward_boundaries_clean.geojson', id: 'ward_code', keep: ['ward_code', 'ward_name', 'borough'] },
-    borough: { file: 'london_borough_boundaries_clean.geojson', id: 'borough', keep: ['borough'] },
+    ward: { file: 'ward_boundaries_clean.geojson', id: 'ward_code', keep: ['ward_code', 'ward_name', 'borough'] },
+    borough: { file: 'borough_boundaries_clean.geojson', id: 'borough', keep: ['borough'] },
 }
 
 const unitIds = {}
