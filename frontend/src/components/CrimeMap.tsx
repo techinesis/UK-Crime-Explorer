@@ -23,9 +23,6 @@ const TOOLTIP_STYLE: Record<Theme, { backgroundColor: string; color: string }> =
   dark: { backgroundColor: 'rgba(15,23,42,0.95)', color: '#f1f5f9' },
 }
 
-// TODO: use dynamic values based on city
-const LONDON_VIEW = { longitude: -0.1278, latitude: 51.5074, zoom: 9.2, minZoom: 9, maxZoom: 16 }
-
 interface Dict {
   [key: string]: any
 }
@@ -64,7 +61,7 @@ function eachCoord(geometry: Geometry | null, cb: (lng: number, lat: number) => 
 }
 
 /** Centre + zoom for a borough's features, or null if none match. */
-function boroughView(features: BoundaryFeature[], borough: string): ViewState | null {
+function boroughView(features: BoundaryFeature[], borough: string, city: string): ViewState | null {
   let minLng = Infinity
   let minLat = Infinity
   let maxLng = -Infinity
@@ -85,8 +82,8 @@ function boroughView(features: BoundaryFeature[], borough: string): ViewState | 
     longitude: (minLng + maxLng) / 2,
     latitude: (minLat + maxLat) / 2,
     zoom: 11.5,
-    minZoom: LONDON_VIEW.minZoom,
-    maxZoom: LONDON_VIEW.maxZoom,
+    minZoom: CITY_VIEWS[city].minZoom,
+    maxZoom: CITY_VIEWS[city].maxZoom,
   }
 }
 
@@ -109,14 +106,14 @@ export default function CrimeMap({
   theme,
   meta,
 }: CrimeMapProps) {
-  const [viewState, setViewState] = useState<ViewState>(LONDON_VIEW)
+  const city = meta?.city ?? CITIES[0]
+
+  const [viewState, setViewState] = useState<ViewState>(CITY_VIEWS[CITIES[0].toLowerCase()])
   const idProp = ID_PROP[level]
   const values = map?.values ?? {}
   const counts = map?.crime_counts ?? {}
   const vmin = map?.vmin ?? 0
   const vmax = map?.vmax ?? 1
-
-  const city = meta?.city ?? CITIES[0]
 
   const allowedBoroughs = useMemo(
     () => new Set(meta?.boroughs ?? []),
@@ -139,7 +136,7 @@ export default function CrimeMap({
       setViewState(CITY_VIEWS[city.toLowerCase()])
       return
     }
-    const next = boroughView(filteredBoundaries.features, borough)
+    const next = boroughView(filteredBoundaries.features, borough, city)
     if (next) setViewState(next)
   }, [borough, filteredBoundaries])
 
