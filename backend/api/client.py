@@ -22,11 +22,12 @@ from core.paths import CACHE_DIR as _CACHE_DIR, DATA_DIR as _DATA_DIR, LSOA_BOUN
 type BoundingBox = tuple[float, float, float, float]
 
 
-# A file that if created indicates that the file data CRIME_DATA_PATH has been extracted
-CRIME_DATA_EXTRACTED_PATH = _CACHE_DIR / "crime-data" / "extracted"
 CRIME_CACHE_PATH = _CACHE_DIR / "crime-data"
+# A file that if created indicates that the file data CRIME_DATA_PATH has been extracted
+def crime_data_extracted_path(city: str):
+    return CRIME_CACHE_PATH / f"extracted-{city}"
 
-CRIME_DATA_PATH = _DATA_DIR / "crime-data.tar.xz"
+CRIME_DATA_PATH = _DATA_DIR / "crime-data"
 
 SCHEMA_14_MARKER_MAPPING = {
     "anti-social-behaviour": "Anti-social behaviour",
@@ -151,19 +152,24 @@ def split_poly(poly: str, splits: int = 2) -> list[str]:
     return polys
 
 
-def prepare_premade_crime_data():
-    if not CRIME_DATA_PATH.exists():
+def prepare_premade_crime_data(city: str):
+    print(f"[LOG] Preparing premade data for {city}")
+
+    data_path = CRIME_DATA_PATH.joinpath(f"{city}.tar.xz")
+    result_path = CRIME_CACHE_PATH.joinpath(city)
+    if not data_path.exists():
+        print(f"[LOG] No premade data for {city}")
         return
 
     print("[LOG] Extracting existing crime data")
 
-    CRIME_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+    result_path.mkdir(parents=True, exist_ok=True)
 
-    crime_data = tarfile.open(CRIME_DATA_PATH, "r:xz")
-    crime_data.extractall(CRIME_CACHE_PATH.parent)
+    crime_data = tarfile.open(data_path, "r:xz")
+    crime_data.extractall(result_path.parent)
     crime_data.close()
 
-    with CRIME_DATA_EXTRACTED_PATH.open("w") as f:
+    with crime_data_extracted_path(city).open("w") as f:
         f.write("ok\n")
 
 
@@ -322,7 +328,7 @@ class Client:
     __city: str
     __bounding_box: BoundingBox
     __box_polys: list[dict]
-    __lsoa_gdf = load_lsoas()
+    __lsoa_gdf: gpd.GeoDataFrame
     __api_base_url: str = "https://data.police.uk/api/"
 
     def __init__(self, city: str = "london"):
@@ -333,6 +339,7 @@ class Client:
         self.__city = city
         self.__bounding_box = self.__city_meta[city][0]
         self.__box_polys = make_box_polys(self.__bounding_box)
+        self.__lsoa_gdf = load_lsoas()
 
     @staticmethod
     def supported_cities() -> list[str]:
@@ -514,8 +521,8 @@ class Client:
             kaggle_df = None
             if self.__city == "london":
                 kaggle_df = prepare_kaggle_crime_data()
-            if not CRIME_DATA_EXTRACTED_PATH.exists():
-                prepare_premade_crime_data()
+            if not crime_data_extracted_path(self.__city).exists():
+                prepare_premade_crime_data(self.__city)
         except KeyboardInterrupt:
             return pd.DataFrame()
         except HTTPError as e:
@@ -531,7 +538,7 @@ class Client:
 
         assert start_year <= end_year
 
-        dfs = [kaggle_df] if kaggle_df else []
+        dfs = [kaggle_df] if kaggle_df is not None else []
 
         for year in range(start_year, end_year + 1):
             if year in exclude_years:
