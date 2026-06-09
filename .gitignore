@@ -15,6 +15,9 @@ venv/
 
 # Large data files - do not upload to GitHub
 data/london_crime_by_lsoa.csv
+data/lsoa-data
+data/borough-data
+data/ward-data
 outputs/crime_aggregated_for_app.csv
 
 # Per-filter colored GeoJSON cache generated at runtime — keep the directory
