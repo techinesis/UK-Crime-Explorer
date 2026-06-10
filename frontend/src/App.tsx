@@ -113,6 +113,7 @@ function Dashboard() {
               map={map.data}
               level={filters.level}
               borough={filters.borough}
+              isForecast={isForecast}
               metricLabel={caption}
               theme={theme}
               meta={meta.data}

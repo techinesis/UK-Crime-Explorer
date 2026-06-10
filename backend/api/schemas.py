@@ -49,3 +49,7 @@ class MapResponse(BaseModel):
     crime_counts: dict[str, float]
     vmin: float
     vmax: float
+
+
+class ScheduleResponse(BaseModel):
+    schedules: dict[str, dict[int, dict[int, int]]]

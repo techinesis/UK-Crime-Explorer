@@ -19,6 +19,7 @@ export interface MetaResponse {
   boroughs: string[]
   tiers: string[]
   city: string
+  schedule?: Record<string, number[][]>
 }
 
 export interface MapRequest {

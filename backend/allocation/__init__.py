@@ -43,7 +43,7 @@ class AveragingModel(AllocationModel):
     def allocate(self, df: pd.DataFrame) -> pd.DataFrame:
         df = (
             df
-            .groupby(["lsoa_code", "lsoa_name", "borough"])
+            .groupby(["lsoa_code"])
             .agg(
                 crime_count=("crime_count", "sum"),
                 crime_types=("category", "nunique"),
@@ -103,7 +103,7 @@ class LPModel(AllocationModel):
     def allocate(self, df: pd.DataFrame) -> pd.DataFrame:
         df = (
             df
-            .groupby(["lsoa_code", "lsoa_name", "borough"])
+            .groupby(["lsoa_code", "borough"])
             .agg(
                 crime_count=("crime_count", "sum"),
                 score=(self.weighted_column, "sum"),
@@ -203,9 +203,8 @@ class RawlsModel(AllocationModel):
     def allocate(self, df: pd.DataFrame) -> pd.DataFrame:
         df = (
             df
-            .groupby(["lsoa_code", "lsoa_name", "borough"])
+            .groupby(["lsoa_code"])
             .agg(
-                crime_count=("crime_count", "sum"),
                 score=(self.weighted_column, "sum"),
                 crime_types=("category", "nunique"),
             )
@@ -467,13 +466,12 @@ def allocate(model: AllocationModel, df: pd.DataFrame, **options):
 def allocate_and_schedule(
     model: AllocationModel,
     df: pd.DataFrame,
-    crime_share: dict[str, dict[str, float]],  # { LSOA -> { Category -> Share } }
     year: int,
     month: int,
     active_units=0.33,
     min_units=1,
     **options,
-):
+) -> dict[str, dict[int, dict[int, int]]]:
     allocated_df = model.allocate(df, **options)
 
     grouped = allocated_df.groupby("lsoa_code")

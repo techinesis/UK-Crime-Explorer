@@ -25,7 +25,7 @@ from core.data import (
 )
 from core.weights import category_metadata, load_weights, weights_records
 from api.chat import register_chat
-from api.schemas import CategoryMeta, MapRequest, MapResponse, MetaResponse
+from api.schemas import CategoryMeta, MapRequest, MapResponse, MetaResponse, ScheduleResponse
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -182,3 +182,8 @@ def map_values(req: MapRequest) -> MapResponse:
 @app.get("/api/weights")
 def weights() -> list[dict]:
     return weights_records()
+
+
+@app.post("/api/schedule")
+def schedule() -> ScheduleResponse:
+    pass
