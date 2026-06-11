@@ -91,6 +91,7 @@ function loadPersona(): Persona {
 /** Current dashboard FilterState → MapRequest (the API's snake_case shape). */
 function toMapRequest(filters: FilterState): MapRequest {
   return {
+    city: filters.city,
     categories: filters.categories,
     tier: filters.tier,
     year: filters.year,
