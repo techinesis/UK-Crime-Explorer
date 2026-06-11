@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { UseQueryResult } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
@@ -39,52 +39,13 @@ type SectionProps = {
   children: ReactNode
 }
 
-function CopyLinkButton({ id, title }: { id: SectionId; title: string }) {
-  const [copied, setCopied] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Clear a pending label reset if the page unmounts mid-feedback.
-  useEffect(
-    () => () => {
-      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current)
-    },
-    [],
-  )
-
-  async function copy() {
-    const url = `${window.location.origin}${window.location.pathname}#${id}`
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current)
-      timeoutRef.current = setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Clipboard unavailable (non-secure context / permission denied):
-      // put the fragment in the address bar so the link is still obtainable.
-      window.location.hash = id
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => void copy()}
-      aria-label={`Copy link to "${title}"`}
-      className="text-xs font-normal text-muted hover:text-accent"
-    >
-      {copied ? 'Copied!' : 'Copy link'}
-    </button>
-  )
-}
-
 function Section({ id, title, children }: SectionProps) {
   return (
     <section id={id} className="mt-10">
-      <h2 className="flex items-baseline gap-3 text-lg font-semibold text-fg">
+      <h2 className="text-lg font-semibold text-fg">
         <a href={`#${id}`} className="hover:text-accent">
           {title}
         </a>
-        <CopyLinkButton id={id} title={title} />
       </h2>
       <div className="mt-2 space-y-3 text-sm leading-relaxed text-muted">{children}</div>
     </section>
@@ -150,8 +111,8 @@ export default function AboutPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-surface">
-      <div className="mx-auto flex max-w-5xl justify-center gap-10 px-5 py-10">
-        <aside className="hidden w-52 shrink-0 lg:block">
+      <div className="mx-auto flex max-w-7xl justify-center gap-10 px-5 py-10">
+        <aside className="hidden w-44 shrink-0 lg:block">
           <nav aria-label="On this page" className="sticky top-10">
             <p className="text-xs font-semibold uppercase tracking-wide text-fg">On this page</p>
             <ul className="mt-3 space-y-2">
@@ -364,6 +325,10 @@ export default function AboutPage() {
             </ul>
           </Section>
         </div>
+
+        {/* Invisible twin of the TOC rail: both flanks reserve equal width, so
+            the prose column sits exactly at the viewport centre. */}
+        <div className="hidden w-44 shrink-0 lg:block" aria-hidden="true" />
       </div>
     </div>
   )
