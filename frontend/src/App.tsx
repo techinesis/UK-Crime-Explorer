@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchMeta, fetchWeights } from './lib/api'
 import { useCrimeData } from './hooks/useCrimeData'
@@ -17,9 +18,27 @@ import SelectionRecap from './components/SelectionRecap'
 import BoroughSummary from './components/BoroughSummary'
 import Footer from './components/Footer'
 import ChatPanel from './components/ChatPanel'
+import NavBar from './components/NavBar'
+import AboutPage from './pages/AboutPage'
 import { useChatAvailable } from './hooks/useChatHealth'
 
 export default function App() {
+  return (
+    <BrowserRouter>
+      <div className="flex h-screen flex-col">
+        <NavBar />
+        <div className="min-h-0 flex-1">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/about" element={<AboutPage />} />
+          </Routes>
+        </div>
+      </div>
+    </BrowserRouter>
+  )
+}
+
+function Dashboard() {
   const { theme, toggle } = useTheme()
   const { filters, update } = useFilters()
 
@@ -59,7 +78,7 @@ export default function App() {
   }, [anim.enabled, anim.index, periods, update, isForecast])
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
         <div>
           <h1 className="text-lg font-semibold text-fg">London Crime Explorer</h1>
