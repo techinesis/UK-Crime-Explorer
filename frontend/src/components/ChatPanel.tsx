@@ -13,8 +13,13 @@
 // lives in useChatHealth (TanStack Query). No extra state library.
 
 import { useEffect, useRef, useState } from 'react'
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import type { Level, MapRequest, Metric, SeverityBasis } from '../lib/types'
 import type { FilterState } from '../hooks/useFilters'
+import ChatMarkdown from './ChatMarkdown'
 
 // --- Wire types (mirror backend/api/chat.py) ------------------------------- //
 
@@ -75,6 +80,20 @@ const STARTER_PROMPTS_BY_PERSONA: Record<Persona, string[]> = {
 }
 
 const PERSONA_STORAGE_KEY = 'crime-chat-persona'
+
+// --- Panel sizing ------------------------------------------------------------ //
+
+/** Default (and minimum) drawer width; matches the original fixed 360px. */
+const MIN_PANEL_WIDTH = 360
+
+/** Keyboard resize step for the drag handle (arrow keys). */
+const PANEL_RESIZE_STEP = 24
+
+/** The drawer can be dragged out to at most a third of the viewport. */
+function clampPanelWidth(width: number): number {
+  const max = Math.max(MIN_PANEL_WIDTH, Math.floor(window.innerWidth / 3))
+  return Math.min(Math.max(width, MIN_PANEL_WIDTH), max)
+}
 
 function loadPersona(): Persona {
   try {
@@ -140,6 +159,7 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
   const [error, setError] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [persona, setPersona] = useState<Persona>(loadPersona)
+  const [panelWidth, setPanelWidth] = useState(MIN_PANEL_WIDTH)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Persist persona choice across sessions.
@@ -150,6 +170,41 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
       // ignore persistence failures
     }
   }, [persona])
+
+  // Re-clamp the drawer if the window shrinks below its ⅓-viewport budget.
+  useEffect(() => {
+    const onWindowResize = () => setPanelWidth((w) => clampPanelWidth(w))
+    window.addEventListener('resize', onWindowResize)
+    return () => window.removeEventListener('resize', onWindowResize)
+  }, [])
+
+  /** Drag the panel's left edge: width follows the pointer, clamped to [360px, ⅓ viewport]. */
+  function startPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const onPointerMove = (e: PointerEvent) => {
+      setPanelWidth(clampPanelWidth(window.innerWidth - e.clientX))
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    // Keep the resize cursor (and kill text selection) while the pointer roams the page.
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  function handleResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const delta = event.key === 'ArrowLeft' ? PANEL_RESIZE_STEP : -PANEL_RESIZE_STEP
+    setPanelWidth((w) => clampPanelWidth(w + delta))
+  }
 
   // Keep the latest message in view as text streams in.
   useEffect(() => {
@@ -299,11 +354,26 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
 
   return (
     <div
-      className={`fixed right-0 top-0 z-40 flex h-screen w-[360px] flex-col border-l border-border bg-card shadow-xl transition-transform duration-200 ${
+      className={`fixed right-0 top-0 z-40 flex h-screen flex-col border-l border-border bg-card shadow-xl transition-transform duration-200 ${
         open ? 'translate-x-0' : 'translate-x-full'
       }`}
+      style={{ width: panelWidth }}
       aria-hidden={!open}
     >
+      {/* Resize handle: drag the left edge to widen the drawer (up to ⅓ of the page). */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize assistant panel"
+        aria-valuemin={MIN_PANEL_WIDTH}
+        aria-valuemax={Math.max(MIN_PANEL_WIDTH, Math.floor(window.innerWidth / 3))}
+        aria-valuenow={Math.round(panelWidth)}
+        tabIndex={0}
+        onPointerDown={startPanelResize}
+        onKeyDown={handleResizeKeyDown}
+        className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
@@ -462,11 +532,14 @@ function Message({ turn, streaming, canRegenerate, onRegenerate }: MessageProps)
             <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
             Thinking…
           </span>
+        ) : isUser ? (
+          // User messages stay plain text — `*test*` keeps its literal asterisks.
+          <p className="whitespace-pre-wrap">{turn.content}</p>
         ) : (
-          <p className="whitespace-pre-wrap">
-            {turn.content}
+          <div>
+            <ChatMarkdown content={turn.content} />
             {streaming && <span className="ml-0.5 animate-pulse">▍</span>}
-          </p>
+          </div>
         )}
 
         {turn.toolCalls && turn.toolCalls.length > 0 && (
