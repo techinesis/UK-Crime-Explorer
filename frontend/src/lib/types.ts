@@ -18,6 +18,7 @@ export interface MetaResponse {
   categories: CategoryMeta[]
   boroughs: string[]
   tiers: string[]
+  city: string
 }
 
 export interface MapRequest {
@@ -29,6 +30,7 @@ export interface MapRequest {
   level: Level
   metric: Metric
   severity_basis: SeverityBasis
+  city: string
 }
 
 export interface MapResponse {

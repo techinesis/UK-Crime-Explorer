@@ -13,6 +13,7 @@ export interface FilterState {
   level: Level
   metric: Metric
   severityBasis: SeverityBasis
+  city: string
 
   // Forecasting options
   mode: ForecastMode
@@ -23,6 +24,7 @@ export interface FilterState {
 export const TIER_ALL = 'All tiers'
 export const YEAR_ALL = 'All years'
 export const BOROUGH_ALL = 'All boroughs'
+export const CITIES = ['London', 'Birmingham', 'Manchester', 'Liverpool']
 
 export const DEFAULT_FILTERS: FilterState = {
   categories: [],
@@ -33,6 +35,7 @@ export const DEFAULT_FILTERS: FilterState = {
   level: 'lsoa',
   metric: 'raw',
   severityBasis: 'mean',
+  city: CITIES[0],
 
   // Forecasting defaults
   mode: 'historical',

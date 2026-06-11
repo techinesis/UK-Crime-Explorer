@@ -208,8 +208,7 @@ multiplier automatically. Restart the backend afterwards to pick up the change.
 - **Crime counts** — *London Crime Data, 2008–2016* (Kaggle `jboysen/london-crime`)
   combined with recent monthly extracts from data.police.uk, aggregated to
   LSOA × month × category.
-- **Boundaries** — Greater London Authority statistical GIS files (LSOA 2011,
-  generalised), reprojected to EPSG:4326 and simplified for the web.
+- **Boundaries** — [LSOAs](https://www.data.gov.uk/dataset/4190f779-9476-4ab2-a611-fe7aa14811be/lower-layer-super-output-areas-december-2021-boundaries-ew-bsc-v4?utm_source=chatgpt.com), [Boroughs](https://www.data.gov.uk/dataset/1f8858d7-487f-4be8-96b0-69a156764bb4/local-authority-districts-may-2025-boundaries-uk-bfe-v2), [Wards](https://www.data.gov.uk/dataset/612b175b-987c-4acf-8ca4-1f93c6947928/wards-may-2025-boundaries-uk-bfc-v2)
 - **Severity** — *Cambridge Crime Harm Index 2020 Update* (Cambridge Centre for
   Evidence-Based Policing).
 - **Preventability** — anchored in Braga et al. (2019), Weisburd (2015, 2021),

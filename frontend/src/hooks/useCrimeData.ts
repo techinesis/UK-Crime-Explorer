@@ -13,6 +13,7 @@ function toMapRequest(filters: FilterState): MapRequest {
     level: filters.level,
     metric: filters.metric,
     severity_basis: filters.severityBasis,
+    city: filters.city,
   }
 }
 
@@ -198,7 +199,7 @@ function scaleForecastRow(row: any, factor: number, collectedValues: number[]) {
 /** Boundaries cached forever per level + map values for the active filters. */
 export function useCrimeData(filters: FilterState) {
   const boundaries = useQuery({
-    queryKey: ['boundaries', filters.level],
+    queryKey: ['boundaries', filters.level, filters.city],
     queryFn: () => fetchBoundaries(filters.level),
     staleTime: Infinity,
   })
@@ -206,7 +207,7 @@ export function useCrimeData(filters: FilterState) {
   const request = toMapRequest(filters)
 
   const map = useQuery({
-    queryKey: ['map', filters.mode, request, filters.forecastHorizon, filters.forecastModel],
+    queryKey: ['map', filters.mode, request, filters.forecastHorizon, filters.forecastModel, filters.city],
     queryFn: () => {
       if (filters.mode === 'forecast') {
         return fetchForecastPrototypeMap(request, filters)
@@ -230,6 +231,7 @@ export function useCrimeData(filters: FilterState) {
       boroughRequest,
       filters.forecastHorizon,
       filters.forecastModel,
+      filters.city,
     ],
     queryFn: () => {
       if (filters.mode === 'forecast') {

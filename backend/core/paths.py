@@ -25,12 +25,13 @@ UNIT_IDS_JSON = DATA_DIR / "unit_ids.json"
 
 # Committed snapshot of the long crime DataFrame — the production data source
 # (the 890 MB raw CSV is gitignored; the API never re-fetches when this exists).
-CRIME_SNAPSHOT = DATA_DIR / "crime_snapshot.parquet"
+def crime_snapshot(city: str) -> Path:
+    return DATA_DIR / f"crime_snapshot-{city}.parquet"
 
 # Source boundary GeoJSON, used only by ETL / pre-bake tooling (not the API).
-LSOA_BOUNDARIES = DATA_DIR / "london_lsoa_boundaries_clean.geojson"
-BOROUGH_BOUNDARIES = DATA_DIR / "london_borough_boundaries_clean.geojson"
-WARD_BOUNDARIES = DATA_DIR / "london_ward_boundaries_clean.geojson"
+LSOA_BOUNDARIES = DATA_DIR / "lsoa_boundaries_clean.geojson"
+BOROUGH_BOUNDARIES = DATA_DIR / "borough_boundaries_clean.geojson"
+WARD_BOUNDARIES = DATA_DIR / "ward_boundaries_clean.geojson"
 BOUNDARY_FILE_BY_LEVEL = {
     "lsoa": LSOA_BOUNDARIES,
     "ward": WARD_BOUNDARIES,

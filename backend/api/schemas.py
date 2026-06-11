@@ -27,6 +27,7 @@ class MetaResponse(BaseModel):
     categories: list[CategoryMeta]
     boroughs: list[str]
     tiers: list[str]
+    city: str
 
 
 class MapRequest(BaseModel):
@@ -38,6 +39,7 @@ class MapRequest(BaseModel):
     level: Level = "lsoa"
     metric: Metric = "raw"
     severity_basis: SeverityBasis = "mean"
+    city: str = "london"
 
 
 class MapResponse(BaseModel):
