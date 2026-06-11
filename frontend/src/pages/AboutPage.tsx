@@ -9,13 +9,13 @@ import type { WeightRow } from '../lib/types'
 // the derived SectionId union makes a drifting JSX id a compile error.
 const SECTIONS = [
   { id: 'overview', title: 'Overview' },
-  { id: 'composite-signal', title: 'The composite demand signal' },
-  { id: 'severity', title: 'Crime severity: the Cambridge Crime Harm Index' },
-  { id: 'preventability', title: 'Crime preventability' },
+  { id: 'composite-signal', title: 'The Composite Demand Signal' },
+  { id: 'severity', title: 'Crime Severity: the Cambridge Crime Harm Index' },
+  { id: 'preventability', title: 'Crime Preventability' },
   { id: 'forecasting', title: 'Forecasting' },
   { id: 'allocation', title: 'Allocation' },
-  { id: 'ethics', title: 'Ethical framing' },
-  { id: 'extensibility', title: 'Multi-city extensibility' },
+  { id: 'ethics', title: 'Ethical Framing' },
+  { id: 'extensibility', title: 'Multi-city Extensibility' },
   { id: 'references', title: 'References' },
 ] as const
 
@@ -131,7 +131,7 @@ export default function AboutPage() {
         </aside>
 
         <div className="w-full min-w-0 max-w-3xl">
-          <h1 className="text-2xl font-semibold text-fg">About &amp; methodology</h1>
+          <h1 className="text-2xl font-semibold text-fg">About &amp; Methodology</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
             This page explains how the London Crime Explorer turns recorded crime into the police
             demand signal shown on the map. Everything here describes analysis that already runs in
@@ -154,7 +154,7 @@ export default function AboutPage() {
             </p>
           </Section>
 
-          <Section id="composite-signal" title="The composite demand signal">
+          <Section id="composite-signal" title="The Composite Demand Signal">
             <p>
               Raw crime counts treat a stolen bicycle and a robbery as equal, so we do not rank areas
               by counts alone. Instead, every area and time period gets a composite score:
@@ -176,7 +176,7 @@ export default function AboutPage() {
             </p>
           </Section>
 
-          <Section id="severity" title="Crime severity: the Cambridge Crime Harm Index">
+          <Section id="severity" title="Crime Severity: the Cambridge Crime Harm Index">
             <p>
               Severity comes from the Cambridge Crime Harm Index (CCHI), which scores each offence by
               the number of days of imprisonment recommended for a first-time offender (Sherman,
@@ -195,7 +195,7 @@ export default function AboutPage() {
             </p>
           </Section>
 
-          <Section id="preventability" title="Crime preventability">
+          <Section id="preventability" title="Crime Preventability">
             <p>
               Preventability asks a simple question: if more officers were visibly present in an
               area, how much of this crime type would not happen? Decades of hot-spot policing
@@ -248,7 +248,7 @@ export default function AboutPage() {
             </p>
           </Section>
 
-          <Section id="ethics" title="Ethical framing">
+          <Section id="ethics" title="Ethical Framing">
             <p>
               Three guardrails are built into the design. First, the system is advisory: it informs
               a human decision and automates nothing. Second, allocation is per-area only — the
@@ -260,7 +260,7 @@ export default function AboutPage() {
             </p>
           </Section>
 
-          <Section id="extensibility" title="Multi-city extensibility">
+          <Section id="extensibility" title="Multi-city Extensibility">
             <p>
               Nothing in the pipeline is London-specific. The same code runs for any city given two
               inputs: boundary files for its statistical areas and a crime feed in the
