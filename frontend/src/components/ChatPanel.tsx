@@ -18,6 +18,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from 'react'
 import type { Level, MapRequest, Metric, SeverityBasis } from '../lib/types'
+import { CITIES } from '../hooks/useFilters'
 import type { FilterState } from '../hooks/useFilters'
 import ChatMarkdown from './ChatMarkdown'
 
@@ -129,6 +130,12 @@ function toMapRequest(filters: FilterState): MapRequest {
  */
 function actionToFilterPatch(payload: ChatActionPayload): Partial<FilterState> {
   const patch: Partial<FilterState> = {}
+  if ('city' in payload && payload.city) {
+    // Backend city values are lowercase; the city selector uses the Title-case
+    // CITIES entries. Resolve case-insensitively, ignore anything unknown.
+    const canonical = CITIES.find((c) => c.toLowerCase() === String(payload.city).toLowerCase())
+    if (canonical) patch.city = canonical
+  }
   if ('categories' in payload) patch.categories = payload.categories
   if ('tier' in payload) patch.tier = payload.tier
   if ('year' in payload) patch.year = payload.year ?? null

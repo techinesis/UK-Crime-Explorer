@@ -45,6 +45,16 @@ TIER_ALL = "All tiers"
 YEAR_ALL = "All years"
 BOROUGH_ALL = "All boroughs"
 
+# The preventability tiers as stored in the data (derived from the multiplier in
+# prepare_category_weights.py), plus the "no filter" sentinel.
+TIERS: tuple[str, ...] = (TIER_ALL, "High", "Medium", "Low")
+
+# Cities served by the per-city snapshots (data/crime_snapshot-<city>.parquet).
+# Mirrors api/client.Client.__city_meta, which cannot be imported here at module
+# scope (client.py loads the LSOA boundaries at import time — see _fetch_raw_crime).
+DEFAULT_CITY = "london"
+KNOWN_CITIES: tuple[str, ...] = ("london", "birmingham", "manchester", "liverpool")
+
 # Canonicalize crime-category labels to the 14 proper names. The assembled data
 # historically carried three spellings of the same categories: the proper names
 # (from the Kaggle 2008-2016 mapping), raw data.police.uk slugs from older cached

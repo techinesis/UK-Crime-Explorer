@@ -89,7 +89,7 @@ def app_values(df, categories, tier, year, months, borough, level, metric, basis
 
 
 def main() -> int:
-    df = get_crime_long()
+    df = get_crime_long("london")
 
     filtersets = [
         dict(categories=(), tier="All tiers", year="All years", months=(), borough="All boroughs"),

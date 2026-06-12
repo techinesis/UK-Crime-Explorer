@@ -29,6 +29,7 @@ from core.chat import (
     DEFAULT_FILTERS,
     PERSONAS,
     TOOLS,
+    VALID_CATEGORIES,
     dispatch_tool,
     normalize_filters,
     resolve_persona,
@@ -38,6 +39,7 @@ from core.chat import (
     tool_query_data,
     tool_set_filters,
 )
+from core.data import KNOWN_CITIES
 
 
 # --------------------------------------------------------------------------- #
@@ -146,6 +148,40 @@ def test_normalize_filters_rejects_bad_enums_and_months():
         normalize_filters({"months": [13]})
 
 
+def test_normalize_filters_lowercases_and_validates_city():
+    assert normalize_filters({"city": "Manchester"}) == {"city": "manchester"}
+    assert normalize_filters({"city": "london"}) == {"city": "london"}
+    with pytest.raises(ValueError, match="unknown city"):
+        normalize_filters({"city": "Gotham"})
+
+
+def test_normalize_filters_resolves_categories_case_insensitively():
+    # Proper names in any case, plus data.police.uk slug forms, resolve to canonical.
+    out = normalize_filters({"categories": ["robbery", "DRUGS", "bicycle-theft"]})
+    assert out == {"categories": ["Robbery", "Drugs", "Bicycle theft"]}
+
+
+def test_normalize_filters_rejects_invented_category_labels():
+    # The bug class that blanked the map in demo testing: "Drug Offences" is not a
+    # real label; the error names the valid list so the model can self-correct.
+    with pytest.raises(ValueError, match="unknown categories"):
+        normalize_filters({"categories": ["Drug Offences"]})
+
+
+def test_normalize_filters_unwraps_single_element_borough_list():
+    assert normalize_filters({"borough": ["Camden"]}) == {"borough": "Camden"}
+    with pytest.raises(ValueError, match="single name"):
+        normalize_filters({"borough": ["Camden", "Westminster"]})
+
+
+def test_normalize_filters_resolves_tier_case_insensitively():
+    # filter_crime_df matches tiers by exact equality, so "high" must become "High".
+    assert normalize_filters({"tier": "high"}) == {"tier": "High"}
+    assert normalize_filters({"tier": "All tiers"}) == {"tier": "All tiers"}
+    with pytest.raises(ValueError, match="unknown tier"):
+        normalize_filters({"tier": "extreme"})
+
+
 # --------------------------------------------------------------------------- #
 # Tool implementations (against the real snapshot)
 # --------------------------------------------------------------------------- #
@@ -185,6 +221,168 @@ def test_query_data_ranks_boroughs_by_composite():
 def test_query_data_defaults_to_unfiltered_view():
     result, _, _ = tool_query_data({"metric": "raw", "level": "borough"})
     assert result["filters_applied"] == DEFAULT_FILTERS | {"metric": "raw", "level": "borough"}
+
+
+def test_query_data_uses_the_callers_default_city():
+    # The dashboard's current city is the per-request default for queries.
+    result, _, _ = tool_query_data({"metric": "raw", "level": "borough"}, default_city="manchester")
+    assert result["filters_applied"]["city"] == "manchester"
+    assert result["unit_count"] >= 1
+    assert result["total_crime_count"] >= 1
+
+
+def test_query_data_explicit_city_overrides_the_default():
+    result, _, _ = tool_query_data(
+        {"metric": "raw", "level": "borough", "city": "Liverpool"}, default_city="london"
+    )
+    assert result["filters_applied"]["city"] == "liverpool"
+
+
+def test_filter_schema_enums_cities_and_categories():
+    props = {t["name"]: t for t in TOOLS}["set_filters"]["input_schema"]["properties"]
+    assert props["city"]["enum"] == list(KNOWN_CITIES)
+    assert props["categories"]["items"]["enum"] == VALID_CATEGORIES
+
+
+def test_set_filters_passes_a_validated_city_into_the_action():
+    result, action, summary = tool_set_filters({"city": "Manchester"})
+    assert action["payload"] == {"city": "manchester"}
+    assert "city=manchester" in summary
+
+
+def test_set_filters_resolves_borough_to_the_datas_exact_name():
+    # "camden" / "tower hamlets" match nothing in filter_crime_df; the tool must
+    # resolve them against the city's data before they reach the dashboard.
+    _, action, _ = tool_set_filters({"borough": "camden"}, default_city="london")
+    assert action["payload"]["borough"] == "Camden"
+    _, action, _ = tool_set_filters({"borough": "tower hamlets"}, default_city="london")
+    assert action["payload"]["borough"] == "Tower Hamlets"
+    # The "All boroughs" sentinel passes through untouched.
+    _, action, _ = tool_set_filters({"borough": "All boroughs"}, default_city="london")
+    assert action["payload"]["borough"] == "All boroughs"
+
+
+def test_unknown_borough_errors_with_the_valid_list():
+    result, action, summary = dispatch_tool(
+        "set_filters", {"borough": "Atlantis"}, default_city="london"
+    )
+    assert action is None
+    assert "unknown borough" in result["error"]
+    assert "Westminster" in result["error"]  # the valid list is offered for self-correction
+
+
+def test_query_data_resolves_borough_case_insensitively():
+    result, _, _ = tool_query_data(
+        {"metric": "raw", "level": "lsoa", "borough": "camden"}, default_city="london"
+    )
+    assert result["filters_applied"]["borough"] == "Camden"
+    assert result["total_crime_count"] > 0
+
+
+def test_query_data_groups_by_category():
+    # "Top 3 crime types in London in 2025" — the question that exposed the gap.
+    result, action, summary = tool_query_data(
+        {"year": 2025, "group_by": "category", "top_n": 3}
+    )
+    assert action is None
+    assert result["group_by"] == "category"
+    assert result["unit_count"] == 14  # all canonical categories present in 2025
+    top = result["top"]
+    assert len(top) == 3
+    assert all(t["name"] in VALID_CATEGORIES for t in top)
+    values = [t["value"] for t in top]
+    assert values == sorted(values, reverse=True)
+    assert summary.startswith("category/raw: top 3")
+
+
+def test_query_data_groups_by_year_and_month():
+    # No top_n: time dimensions default to the WHOLE series (a top-5 default
+    # would surface the five biggest years and hide the recent window).
+    years, _, _ = tool_query_data({"group_by": "year"})
+    year_ids = {t["id"] for t in years["top"]}
+    assert "2024" in year_ids and "2025" in year_ids and "2008" in year_ids
+    assert "2020" not in year_ids  # the 2017-2022 coverage gap
+
+    # 2015 is a complete Kaggle year; the 2023+ window has missing months
+    # (e.g. 2024 lacks Sep/Oct), so the calendar assertion uses 2015.
+    months, _, _ = tool_query_data({"year": 2015, "group_by": "month", "top_n": 12})
+    assert months["unit_count"] == 12
+    assert {t["id"] for t in months["top"]} == {str(m) for m in range(1, 13)}
+
+
+def test_query_data_hints_available_months_for_a_gappy_year():
+    # Sep 2024 is one of the recent window's missing months: empty result, and
+    # the hint names which months of 2024 ARE covered.
+    result, _, _ = tool_query_data({"year": 2024, "months": [9], "group_by": "category"})
+    assert result["total_crime_count"] == 0
+    hint = result["hint"]
+    assert 9 not in hint["available_months_in_year"]
+    assert 1 in hint["available_months_in_year"]
+
+
+def test_query_data_empty_result_carries_an_available_years_hint():
+    # A year inside the 2017-2022 gap must explain itself, not look like an outage.
+    result, _, summary = tool_query_data({"year": 2020, "group_by": "category"})
+    assert result["total_crime_count"] == 0
+    assert result["top"] == []
+    hint = result["hint"]
+    assert 2024 in hint["available_years"]
+    assert 2020 not in hint["available_years"]
+    assert "no rows matched" in summary
+
+
+def test_category_grouping_without_recent_year_carries_the_coverage_note():
+    # 2008-2016 rows are one 'Other crime' bucket per LSOA-month; an all-years
+    # category ranking must warn the model, a 2025-scoped one must not.
+    all_years, _, _ = tool_query_data({"group_by": "category"})
+    assert "2023" in all_years["note"]
+    recent, _, _ = tool_query_data({"group_by": "category", "year": 2025})
+    assert "note" not in recent
+
+
+def test_category_filter_on_a_precategory_year_hints_coverage():
+    # "Robbery in 2015" matches nothing (2015 has no category detail at all).
+    result, _, _ = tool_query_data({"categories": ["Robbery"], "year": 2015})
+    assert result["total_crime_count"] == 0
+    assert "category_coverage" in result["hint"]
+
+
+def test_query_data_rejects_unknown_group_by():
+    result, action, _ = dispatch_tool("query_data", {"group_by": "constellation"})
+    assert action is None
+    assert "unknown group_by" in result["error"]
+
+
+def test_group_by_schema_is_on_query_data_only():
+    by_name = {t["name"]: t for t in TOOLS}
+    assert "group_by" in by_name["query_data"]["input_schema"]["properties"]
+    assert "group_by" not in by_name["set_filters"]["input_schema"]["properties"]
+
+
+# --------------------------------------------------------------------------- #
+# Drift guards: constants that future features must keep in sync with the data
+# --------------------------------------------------------------------------- #
+
+
+def test_known_cities_all_have_committed_snapshots():
+    """Adding a city to KNOWN_CITIES without shipping its snapshot would break
+    the chat in production (no live fetch there); catch it at test time."""
+    from core.data import DEFAULT_CITY
+    from core.paths import crime_snapshot
+
+    assert DEFAULT_CITY in KNOWN_CITIES
+    for city in KNOWN_CITIES:
+        assert crime_snapshot(city).exists(), f"missing snapshot for {city!r}"
+
+
+def test_valid_categories_match_the_weights_table():
+    """The tool-schema category enum must track category_weights.csv; if a new
+    category lands in one place but not the other, the chat would either reject
+    a real label or offer one with no weights."""
+    from core.weights import weights_records
+
+    weights_categories = {row["category"] for row in weights_records()}
+    assert set(VALID_CATEGORIES) == weights_categories
 
 
 def test_get_weights_returns_the_full_anchored_table():
@@ -374,6 +572,52 @@ def test_stream_passes_persona_into_the_system_prompt():
     list(run_chat_stream([{"role": "user", "content": "hello"}], client=client, persona="examiner"))
     system = client.messages.calls[0]["system"]
     assert system[1]["text"] == PERSONAS["examiner"]["preamble"]
+
+
+def test_stream_threads_the_current_view_city_into_tool_dispatch(monkeypatch):
+    """The frontend sends Title-case city in current_filters; query_data must
+    receive it lowercased as its default."""
+    captured: dict = {}
+
+    def fake_dispatch(name, args, *, default_city="london"):
+        captured["name"] = name
+        captured["default_city"] = default_city
+        return {"ok": True}, None, "stub"
+
+    monkeypatch.setattr(chat_core, "dispatch_tool", fake_dispatch)
+    client = FakeClient(
+        [
+            _tool_turn("t1", "query_data", {"metric": "raw", "level": "borough"}),
+            _text_turn("done"),
+        ]
+    )
+    list(
+        run_chat_stream(
+            [{"role": "user", "content": "top boroughs?"}],
+            client=client,
+            current_filters={"city": "Manchester", "level": "borough"},
+        )
+    )
+    assert captured == {"name": "query_data", "default_city": "manchester"}
+
+
+def test_stream_falls_back_to_london_for_unknown_current_city(monkeypatch):
+    captured: dict = {}
+
+    def fake_dispatch(name, args, *, default_city="london"):
+        captured["default_city"] = default_city
+        return {"ok": True}, None, "stub"
+
+    monkeypatch.setattr(chat_core, "dispatch_tool", fake_dispatch)
+    client = FakeClient([_tool_turn("t1", "query_data", {}), _text_turn("done")])
+    list(
+        run_chat_stream(
+            [{"role": "user", "content": "hi"}],
+            client=client,
+            current_filters={"city": "Atlantis"},
+        )
+    )
+    assert captured["default_city"] == "london"
 
 
 # --------------------------------------------------------------------------- #

@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
+from core import geometry
 from core.data import aggregate, filter_crime_df, get_crime_long
 
 
@@ -49,14 +50,15 @@ def test_weights(client):
 
 def test_map_borough_raw_matches_core(client):
     """Hand-check: /api/map borough/raw values equal the core aggregation."""
-    df = get_crime_long()
+    df = get_crime_long("london")
     agg = aggregate(filter_crime_df(df), "borough")
     expected = dict(zip(agg["borough"].astype(str), agg["crime_count"].astype(float)))
 
     r = client.post("/api/map", json={"level": "borough", "metric": "raw"})
     assert r.status_code == 200
     body = r.json()
-    assert len(body["values"]) == 33  # every borough present (0-filled)
+    # The values map is 0-filled against the global (all-cities) unit list.
+    assert len(body["values"]) == len(geometry.unit_ids("borough"))
     for borough, count in expected.items():
         assert body["values"][borough] == count
         assert body["crime_counts"][borough] == count
@@ -71,7 +73,7 @@ def test_map_share_sums_to_100(client):
 
 def test_map_lsoa_returns_all_units(client):
     r = client.post("/api/map", json={"level": "lsoa", "metric": "composite"})
-    assert len(r.json()["values"]) == 4835
+    assert len(r.json()["values"]) == len(geometry.unit_ids("lsoa"))
 
 
 def test_map_severity_basis_changes_values(client):
