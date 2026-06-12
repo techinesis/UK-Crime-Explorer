@@ -492,17 +492,20 @@ class Client:
             for c in self._enrich_with_lsoa(all_crimes)
         ])
 
-        df_agg = (
-            df
-            .groupby(["lsoa_code", "lsoa_name", "borough", "category", "year", "month"])
-            .size()
-            .to_frame("crime_count")
-            .reset_index()
-        )
+        try:
+            df_agg = (
+                df
+                .groupby(["lsoa_code", "lsoa_name", "borough", "category", "year", "month"])
+                .size()
+                .to_frame("crime_count")
+                .reset_index()
+            )
 
-        df_agg.to_csv(cache_path, index=False)
+            df_agg.to_csv(cache_path, index=False)
 
-        return df_agg
+            return df_agg
+        except Exception:
+            return pd.DataFrame()
 
     def street_crimes_timerange(
         self,

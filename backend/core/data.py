@@ -20,17 +20,7 @@ from core.weights import load_weights
 # matching change to the analysis methodology.
 TIMERANGE_START_YEAR = 2023
 TIMERANGE_END_YEAR = None  # -> resolved to data.police.uk's last-updated month
-TIMERANGE_EXCLUDE_YEAR_MONTH = [
-    "2023-01",
-    "2023-02",
-    "2023-03",
-    "2023-04",
-    "2023-05",
-    "2024-09",
-    "2024-10",
-    "2025-03",
-    "2025-11",
-]
+TIMERANGE_EXCLUDE_YEAR_MONTH = []
 
 RAW_COLUMNS = ["lsoa_code", "lsoa_name", "borough", "category", "year", "month", "crime_count"]
 
