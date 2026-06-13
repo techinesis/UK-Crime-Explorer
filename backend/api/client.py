@@ -254,7 +254,7 @@ class CrimeCategory:
 
 _LONDON_BOROUGHS = [
     "City of London",
-    "City of Westminster",
+    "Westminster",
     "Kensington and Chelsea",
     "Hammersmith and Fulham",
     "Wandsworth",
