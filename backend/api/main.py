@@ -6,9 +6,19 @@ tuple. Boundary GeoJSON is served as static CDN assets, not by this API.
 """
 
 from __future__ import annotations
+from typing import no_type_check
 
 from contextlib import asynccontextmanager
 from functools import lru_cache
+
+import numpy as np
+from allocation import (
+    _DAILY_HOURLY_WEIGHTS,
+    AllocationInfeasibleError,
+    AveragingModel,
+    LPModel,
+    RawlsModel,
+)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +35,14 @@ from core.data import (
 )
 from core.weights import category_metadata, load_weights, weights_records
 from api.chat import register_chat
-from api.schemas import CategoryMeta, MapRequest, MapResponse, MetaResponse, ScheduleResponse
+from api.schemas import (
+    AllocationResponse,
+    CategoryMeta,
+    MapRequest,
+    MapResponse,
+    MetaResponse,
+    AllocationEntry,
+)
 
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -184,6 +201,100 @@ def weights() -> list[dict]:
     return weights_records()
 
 
-@app.post("/api/schedule")
-def schedule() -> ScheduleResponse:
-    pass
+_CAT_TEMPLATES: dict[str, np.ndarray] = {}
+for _cat, (_hw, _dw) in _DAILY_HOURLY_WEIGHTS.items():
+    _h = np.array(_hw, dtype=float)
+    _h /= _h.sum()
+    _d = np.array(_dw, dtype=float)
+    _d /= _d.sum()
+    _CAT_TEMPLATES[_cat] = np.outer(_d, _h)
+
+_DEFAULT_TEMPLATE = _CAT_TEMPLATES.get("Other crime", np.ones((7, 24)) / (7 * 24))
+
+
+def _lsoa_weekly_schedule(crime_shares: dict, units: int, active: float = 0.33) -> list[list[int]]:
+    total = sum(crime_shares.values())
+    if total <= 0:
+        return [[1] * 24 for _ in range(7)]
+    template = np.zeros((7, 24), dtype=float)
+    for cat, count in crime_shares.items():
+        template += (count / total) * _CAT_TEMPLATES.get(cat, _DEFAULT_TEMPLATE)
+    mean_val = template.mean()
+    if mean_val > 0:
+        template /= mean_val
+    return np.maximum(np.round(template * units * active).astype(int), 1).tolist()
+
+
+@no_type_check # type checkers aren't too happy about itertuples
+@lru_cache(maxsize=32)
+def _allocation_payload(city: str, total_units: int, model: str) -> AllocationResponse:
+    df = get_crime_long(city)
+    resp = AllocationResponse(
+        city=city,
+        total_units=total_units,
+        model=model,
+        warning="",
+        entries=[],
+    )
+
+    lsoa_name_map = df.groupby("lsoa_code")["lsoa_name"].first()
+    borough_map = df.groupby("lsoa_code")["borough"].first()
+
+    warning: str | None = None
+    if model == "lp":
+        alloc_model = LPModel(weighted_column="composite_weighted_mean", total_units=total_units)
+    elif model == "rawls":
+        alloc_model = RawlsModel(weighted_column="composite_weighted_mean", total_units=total_units)
+    else:
+        alloc_model = AveragingModel(total_units=total_units)
+
+    try:
+        allocated_df = alloc_model.allocate(df)
+    except AllocationInfeasibleError as e:
+        warning = f"Allocation was infeasible with the given parameters ({e})."
+        resp.warning = warning
+        return resp
+
+    allocated_df["lsoa_name"] = (
+        allocated_df["lsoa_code"].map(lsoa_name_map).fillna(allocated_df["lsoa_code"])
+    )
+    if "borough" not in allocated_df.columns:
+        allocated_df["borough"] = allocated_df["lsoa_code"].map(borough_map)
+
+    crime_by_lsoa: dict[str, dict[str, float]] = {}
+    for row in (
+        df
+        .groupby(["lsoa_code", "category"])["crime_count"]
+        .sum()
+        .reset_index()
+        .itertuples(index=False)
+    ):
+        crime_by_lsoa.setdefault(str(row.lsoa_code), {})[str(row.category)] = float(row.crime_count)
+
+    entries = []
+    for row in allocated_df.itertuples(index=False):
+        lsoa = str(row.lsoa_code)
+        u = max(1, int(round(float(row.units))))
+        shares = crime_by_lsoa.get(lsoa, {"Other crime": 1.0})
+        entries.append(
+            AllocationEntry(
+                lsoa_code=lsoa,
+                lsoa_name=str(row.lsoa_name),
+                borough=str(row.borough),
+                units=float(row.units),
+                schedule=_lsoa_weekly_schedule(shares, u),
+            )
+        )
+
+    resp.warning = warning
+    resp.entries = entries
+    return resp
+
+
+@app.get("/api/allocation", response_model=AllocationResponse)
+def allocation_endpoint(
+    city: str = "london", total_units: int = 30000, model: str = "lp"
+) -> AllocationResponse:
+    if city != "london":
+        raise NotImplementedError("Allocation is currently only supported for London")
+    return _allocation_payload(city, total_units, model)

@@ -12,6 +12,9 @@ export default function NavBar() {
       <NavLink to="/" end className={linkClass}>
         Dashboard
       </NavLink>
+      <NavLink to="/allocation" className={linkClass}>
+        Allocation
+      </NavLink>
       <NavLink to="/about" className={linkClass}>
         About
       </NavLink>

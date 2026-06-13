@@ -20,6 +20,7 @@ import Footer from './components/Footer'
 import ChatPanel from './components/ChatPanel'
 import NavBar from './components/NavBar'
 import AboutPage from './pages/AboutPage'
+import AllocationPage from './pages/AllocationPage'
 import { useChatAvailable } from './hooks/useChatHealth'
 
 export default function App() {
@@ -30,6 +31,7 @@ export default function App() {
         <div className="min-h-0 flex-1">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/allocation" element={<AllocationPage />} />
             <Route path="/about" element={<AboutPage />} />
           </Routes>
         </div>

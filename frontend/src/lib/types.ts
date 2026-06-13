@@ -51,6 +51,22 @@ export interface WeightRow {
   preventability_anchor: string
 }
 
+export interface AllocationEntry {
+  lsoa_code: string
+  lsoa_name: string
+  borough: string
+  units: number
+  schedule: number[][] // [day][hour]
+}
+
+export interface AllocationResponse {
+  city: string
+  total_units: number
+  model: string
+  warning?: string
+  entries: AllocationEntry[]
+}
+
 // GeoJSON shape for the boundary layers (geometry + trimmed props).
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 

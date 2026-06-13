@@ -2,6 +2,7 @@
 // the FastAPI backend.
 
 import type {
+  AllocationResponse,
   BoundaryCollection,
   Level,
   MapRequest,
@@ -23,8 +24,7 @@ async function getJSON<T>(url: string): Promise<T> {
 }
 
 export async function fetchMeta(city: string): Promise<MetaResponse> {
-  const params = new URLSearchParams()
-  params.append("city", city.toLowerCase())
+  const params = new URLSearchParams({ city: city.toLowerCase() })
   return getJSON<MetaResponse>(`/api/meta?${params}`)
 }
 
@@ -52,4 +52,13 @@ export async function fetchMap(req: MapRequest): Promise<MapResponse> {
   } catch (error: unknown) {
     throw new Error(errorMessage(error))
   }
+}
+
+export async function fetchAllocation(
+  city: string,
+  totalUnits: number,
+  model: string,
+): Promise<AllocationResponse> {
+  const params = new URLSearchParams({ city: city.toLowerCase(), total_units: String(totalUnits), model })
+  return getJSON<AllocationResponse>(`/api/allocation?${params}`)
 }

@@ -5,6 +5,10 @@ from scipy.optimize import linprog
 import calendar
 
 
+class AllocationInfeasibleError(Exception):
+    pass
+
+
 ANTI_OVER_POLICING_WEIGHTS: dict[str, float] = {
     "Anti-social behaviour": 0.35,
     "Bicycle theft": 0.75,
@@ -28,8 +32,6 @@ class AllocationModel:
         self.total_units = total_units
         self.output_column = options.get("output_column", "units")
 
-        return self
-
     def allocate(self, df: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError
 
@@ -37,8 +39,6 @@ class AllocationModel:
 class AveragingModel(AllocationModel):
     def __init__(self, **options):
         super().__init__(**options)
-
-        return self
 
     def allocate(self, df: pd.DataFrame) -> pd.DataFrame:
         df = (
@@ -48,7 +48,7 @@ class AveragingModel(AllocationModel):
                 crime_count=("crime_count", "sum"),
                 crime_types=("category", "nunique"),
             )
-            .reset_index(drop=True)
+            .reset_index()
         )
 
         TOTAL_CRIME = df["crime_count"].sum()
@@ -65,12 +65,12 @@ class LPModel(AllocationModel):
     floor such that each borough receives at least 70% of its crime-proportional budget
     share
     We are solving the following objective:
-     max_x a \sum_i s_i x_i / S + b \sum_i c_i x_i / C + c \sum_i d_i x_i / n
+     max_x a sum_i s_i x_i / S + b sum_i c_i x_i / C + c sum_i d_i x_i / n
     such that
-     \sum_i x_i = T
+     sum_i x_i = T
      x_i >= x^min
      x_i <= x_i^max
-     forall borough : \sum_{lsoa \in borough} x_lsoa >= h * C_borough / C * T
+     forall borough : sum_{lsoa in borough} x_lsoa >= h * C_borough / C * T
     where
      s_i = weighted score (severity and preventability)
      c_i = crime count
@@ -95,10 +95,8 @@ class LPModel(AllocationModel):
         self.beta = options.get("beta", 0.25)
         self.gamma = options.get("gamma", 0.15)
 
-        self.max_cap_factor = options.get("max_cap_factor", 3.5)
+        self.max_cap_factor = options.get("max_cap_factor", 2.0)
         self.equity_floor = options.get("equity_floor", 0.7)
-
-        return self
 
     def allocate(self, df: pd.DataFrame) -> pd.DataFrame:
         df = (
@@ -109,7 +107,7 @@ class LPModel(AllocationModel):
                 score=(self.weighted_column, "sum"),
                 crime_types=("category", "nunique"),
             )
-            .reset_index(drop=True)
+            .reset_index()
         )
 
         total_crime = df["crime_count"].sum()
@@ -148,7 +146,7 @@ class LPModel(AllocationModel):
             mask = (df["borough"] == borough).values
             bor_share = borough_crime_sum[borough] / total_crime
             floor = self.equity_floor * bor_share * self.total_units
-            A_ub.append(-mask)
+            A_ub.append(-mask.astype(float))
             b_ub.append(-floor)
 
         A_ub = np.array(A_ub)
@@ -164,6 +162,11 @@ class LPModel(AllocationModel):
             method="highs",
             options={"disp": False},
         )
+
+        if res.status != 0:
+            raise AllocationInfeasibleError(
+                f"LP allocation infeasible (status {res.status}: {res.message})"
+            )
 
         df[self.output_column] = res.x
 
@@ -185,9 +188,9 @@ class RawlsModel(AllocationModel):
      max_{x, z} z
     such that
      forall i : x_i >= z * ent_i
-     \sum_i x_i = T
+     sum_i x_i = T
      x_i >= x^min
-     z \in [0, 1]
+     z in [0, 1]
     where
      ent_i = s_i * T / S
     """
@@ -198,8 +201,6 @@ class RawlsModel(AllocationModel):
         self.weighted_column = weighted_column
         self.min_units_per_lsoa = options.get("min_units_per_lsoa", 2)
 
-        return self
-
     def allocate(self, df: pd.DataFrame) -> pd.DataFrame:
         df = (
             df
@@ -208,7 +209,7 @@ class RawlsModel(AllocationModel):
                 score=(self.weighted_column, "sum"),
                 crime_types=("category", "nunique"),
             )
-            .reset_index(drop=True)
+            .reset_index()
         )
 
         n = len(df)
@@ -247,121 +248,22 @@ class RawlsModel(AllocationModel):
         return df
 
 
+# fmt: off
 _DAILY_HOURLY_WEIGHTS: dict[str, tuple[list[float], list[float]]] = {
     "Violence and sexual offences": (
-        [
-            2,
-            3,
-            4,
-            4,
-            3,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            2,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            6,
-            4,
-        ],
+        [ 2, 3, 4, 4, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3, 4, 5, 6, 7, 6, 4, ],
         [2, 2, 2, 3, 5, 7, 5],
     ),
     "Burglary": (
-        [
-            2,
-            2,
-            2,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            6,
-            5,
-            4,
-            3,
-            3,
-            2,
-        ],
+        [ 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 6, 6, 5, 4, 3, 3, 2, ],
         [4, 4, 4, 4, 3, 3, 4],
     ),
     "Theft from the person": (
-        [
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            2,
-            4,
-            5,
-            5,
-            5,
-            5,
-            5,
-            5,
-            5,
-            4,
-            4,
-            3,
-            3,
-            2,
-            2,
-            1,
-            1,
-            1,
-        ],
+        [ 1, 1, 1, 1, 1, 1, 2, 4, 5, 5, 5, 5, 5, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1, ],
         [4, 4, 4, 4, 4, 5, 4],
     ),
     "Anti-social behaviour": (
-        [
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            2,
-            2,
-            2,
-            2,
-            2,
-            2,
-            3,
-            3,
-            4,
-            5,
-            6,
-            6,
-            5,
-            4,
-            3,
-            2,
-        ],
+        [ 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 4, 5, 6, 6, 5, 4, 3, 2, ],
         [3, 3, 3, 4, 5, 6, 5],
     ),
     "Drugs": (
@@ -369,32 +271,7 @@ _DAILY_HOURLY_WEIGHTS: dict[str, tuple[list[float], list[float]]] = {
         [3, 3, 3, 4, 5, 5, 4],
     ),
     "Criminal damage and arson": (
-        [
-            2,
-            3,
-            3,
-            2,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            2,
-            2,
-            3,
-            4,
-            5,
-            5,
-            4,
-            4,
-            3,
-            2,
-        ],
+        [ 2, 3, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3, 4, 5, 5, 4, 4, 3, 2, ],
         [3, 3, 3, 4, 5, 6, 4],
     ),
     "Vehicle crime": (
@@ -414,6 +291,7 @@ _DAILY_HOURLY_WEIGHTS: dict[str, tuple[list[float], list[float]]] = {
         [4, 4, 4, 4, 4, 4, 4],
     ),
 }
+# fmt: on
 
 
 def schedule_units(

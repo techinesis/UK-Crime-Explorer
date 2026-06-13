@@ -51,5 +51,17 @@ class MapResponse(BaseModel):
     vmax: float
 
 
-class ScheduleResponse(BaseModel):
-    schedules: dict[str, dict[int, dict[int, int]]]
+class AllocationEntry(BaseModel):
+    lsoa_code: str
+    lsoa_name: str
+    borough: str
+    units: float
+    schedule: list[list[int]] # [day][hour]
+
+
+class AllocationResponse(BaseModel):
+    city: str
+    total_units: int
+    model: str
+    warning: str | None = None
+    entries: list[AllocationEntry]

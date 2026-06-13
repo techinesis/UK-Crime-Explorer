@@ -7,6 +7,7 @@ import { rgbaForValue, type RGBA } from '../lib/colors'
 import type { BoundaryCollection, BoundaryProps, Level, MapResponse, MetaResponse } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
 import { CITIES } from '../hooks/useFilters'
+import { DAYS, lerpRgb, formatHour, CELL_LOW, CELL_HIGH } from '../pages/AllocationPage'
 import type { PickingInfo } from '@deck.gl/core'
 
 const BASEMAP: Record<Theme, string> = {
@@ -41,7 +42,6 @@ const ID_PROP: Record<Level, string> = {
   borough: 'borough',
 }
 
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 const N_HOURS = 24
 
 interface ViewState {
@@ -100,28 +100,6 @@ function boroughView(features: BoundaryFeature[], borough: string, city: string)
   }
 }
 
-function formatHour(h: number): string {
-  if (h === 0) return '12a'
-  if (h === 12) return '12p'
-  return h < 12 ? `${h}a` : `${h - 12}p`
-}
-
-function lerpRgb(from: [number, number, number], to: [number, number, number], t: number): string {
-  const lerp = (x: number, y: number) => x + (y - x) * t
-  const r = Math.round(lerp(from[0], to[0]))
-  const g = Math.round(lerp(from[1], to[1]))
-  const b = Math.round(lerp(from[2], to[2]))
-  return `rgb(${r},${g},${b})`
-}
-
-const CELL_LOW:  Record<Theme, [number,number,number]> = {
-  light: [241, 245, 249],
-  dark:  [15, 23, 42],
-}
-const CELL_HIGH: Record<Theme, [number,number,number]> = {
-  light: [29, 78, 216],
-  dark:  [245, 158, 11],
-}
 interface SchedulePopupProps {
   popup: PopupState
   theme: Theme

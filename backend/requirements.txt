@@ -1,5 +1,6 @@
 # --- Data pipeline (lifted from the original app) ---
 numpy==1.26.4          # pinned for the geopandas/pandas combo; do not bump
+scipy
 pandas
 geopandas
 shapely
