@@ -20,8 +20,19 @@ export interface FilterState {
   mode: ForecastMode
   forecastHorizon: number
   forecastModel: ForecastModel
+
+  // Allocation stuff
   allocationModel: AllocationModel
   totalUnits: number
+
+  // LP Parameters
+  allocAlpha: number // weight for severity score
+  allocBeta: number // weight for crime volume
+  allocMaxCapFactor: number
+  allocEquityFloor: number
+
+  // LP and Rawls Parameters
+  allocMinUnitsPerLsoa: number
 }
 
 export const TIER_ALL = 'All tiers'
@@ -49,8 +60,16 @@ export const DEFAULT_FILTERS: FilterState = {
   mode: 'historical',
   forecastHorizon: 1,
   forecastModel: 'xgboost',
+
   allocationModel: ALLOCATION_MODELS[0].value,
   totalUnits: 33_000,
+
+  allocAlpha: 0.6,
+  allocBeta: 0.25,
+  allocMaxCapFactor: 2.0,
+  allocEquityFloor: 0.7,
+
+  allocMinUnitsPerLsoa: 6,
 }
 
 export const METRIC_OPTIONS: Array<{ value: Metric; label: string }> = [

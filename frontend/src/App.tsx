@@ -22,6 +22,7 @@ import NavBar from './components/NavBar'
 import AboutPage from './pages/AboutPage'
 import AllocationPage from './pages/AllocationPage'
 import { useChatAvailable } from './hooks/useChatHealth'
+import type { AllocationRequest } from './lib/types'
 
 export default function App() {
   return (
@@ -51,9 +52,36 @@ function Dashboard() {
   
   const meta = useQuery({ queryKey: ['meta', filters.city], queryFn: () => fetchMeta(filters.city) })
   const weights = useQuery({ queryKey: ['weights', filters.city], queryFn: fetchWeights })
-  const allocation = useQuery({ queryKey: ['allocation', filters.city, filters.totalUnits, filters.allocationModel], queryFn: () => {
-    return fetchAllocation(filters.city, filters.totalUnits, filters.allocationModel)
-  }})
+  const allocation = useQuery({
+    queryKey: [
+      'allocation',
+      filters.city,
+      filters.totalUnits,
+      filters.allocationModel,
+      filters.allocationModel !== 'baseline' ? filters.allocMinUnitsPerLsoa : null,
+      filters.allocationModel === 'lp' ? filters.allocAlpha : null,
+      filters.allocationModel === 'lp' ? filters.allocBeta : null,
+      filters.allocationModel === 'lp' ? filters.allocMaxCapFactor : null,
+      filters.allocationModel === 'lp' ? filters.allocEquityFloor : null,
+    ],
+    queryFn: () => {
+      const req: AllocationRequest = {
+        city: filters.city,
+        totalUnits: filters.totalUnits,
+        model: filters.allocationModel,
+      }
+      if (filters.allocationModel !== 'baseline') {
+        req.minUnitsPerLsoa = filters.allocMinUnitsPerLsoa
+      }
+      if (filters.allocationModel === 'lp') {
+        req.alpha = filters.allocAlpha
+        req.beta = filters.allocBeta
+        req.maxCapFactor = filters.allocMaxCapFactor
+        req.equityFloor = filters.allocEquityFloor
+      }
+      return fetchAllocation(req)
+    },
+  })
 
   const { boundaries, map, boroughMap } = useCrimeData(filters)
 

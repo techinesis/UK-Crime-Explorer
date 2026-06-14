@@ -227,8 +227,17 @@ def _lsoa_weekly_schedule(crime_shares: dict, units: int, active: float = 0.33) 
 
 
 @no_type_check # type checkers aren't too happy about itertuples
-@lru_cache(maxsize=32)
-def _allocation_payload(city: str, total_units: int, model: str) -> AllocationResponse:
+@lru_cache(maxsize=64)
+def _allocation_payload(
+    city: str,
+    total_units: int,
+    model: str,
+    alpha: float,
+    beta: float,
+    max_cap_factor: float,
+    equity_floor: float,
+    min_units_per_lsoa: int,
+) -> AllocationResponse:
     df = get_forecast_long(city)
     resp = AllocationResponse(
         city=city,
@@ -243,9 +252,22 @@ def _allocation_payload(city: str, total_units: int, model: str) -> AllocationRe
 
     warning: str | None = None
     if model == "lp":
-        alloc_model = LPModel(weighted_column="composite_weighted_mean", total_units=total_units)
+        alloc_model = LPModel(
+            weighted_column="composite_weighted_mean",
+            total_units=total_units,
+            alpha=alpha,
+            beta=beta,
+            gamma=max(0.0, 1.0 - alpha - beta),
+            max_cap_factor=max_cap_factor,
+            equity_floor=equity_floor,
+            min_units_per_lsoa=min_units_per_lsoa,
+        )
     elif model == "rawls":
-        alloc_model = RawlsModel(weighted_column="composite_weighted_mean", total_units=total_units)
+        alloc_model = RawlsModel(
+            weighted_column="composite_weighted_mean",
+            total_units=total_units,
+            min_units_per_lsoa=min_units_per_lsoa,
+        )
     else:
         alloc_model = AveragingModel(total_units=total_units)
 
@@ -294,8 +316,18 @@ def _allocation_payload(city: str, total_units: int, model: str) -> AllocationRe
 
 @app.get("/api/allocation", response_model=AllocationResponse)
 def allocation_endpoint(
-    city: str = "london", total_units: int = 30000, model: str = "lp"
+    # Not sure if there is a way to put these into a class while preserving defaults
+    city: str = "london",
+    total_units: int = 30000,
+    model: str = "lp",
+    alpha: float = 0.6,
+    beta: float = 0.25,
+    max_cap_factor: float = 2.0,
+    equity_floor: float = 0.7,
+    min_units_per_lsoa: int = 6,
 ) -> AllocationResponse:
     if city != "london":
         raise NotImplementedError("Allocation is currently only supported for London")
-    return _allocation_payload(city, total_units, model)
+    return _allocation_payload(
+        city, total_units, model, alpha, beta, max_cap_factor, equity_floor, min_units_per_lsoa
+    )

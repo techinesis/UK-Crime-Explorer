@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchAllocation, fetchMeta } from '../lib/api'
 import { useTheme } from '../hooks/useTheme'
 import { ALLOCATION_MODELS, BOROUGH_ALL, CITIES } from '../hooks/useFilters'
 import ThemeToggle from '../components/ThemeToggle'
-import type { AllocationEntry } from '../lib/types'
+import type { AllocationEntry, AllocationRequest } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
@@ -164,6 +164,45 @@ function WeeklyHeatmap({ schedule, theme, label }: HeatmapProps) {
 const selectClass =
   'rounded-md border border-border bg-card px-3 py-1.5 text-sm text-fg focus:border-accent focus:outline-none'
 
+function ParamSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  format: (v: number) => string
+  onChange: (v: number) => void
+}) {
+  const [local, setLocal] = useState(value)
+  useEffect(() => { setLocal(value) }, [value])
+  return (
+    <div>
+      <div className="mb-1 flex justify-between text-xs">
+        <span className="text-muted">{label}</span>
+        <span className="font-medium tabular-nums text-fg">{format(local)}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={local}
+        onChange={e => setLocal(parseFloat(e.target.value))}
+        onPointerUp={e => onChange(parseFloat((e.target as HTMLInputElement).value))}
+        className="w-full accent-accent"
+      />
+    </div>
+  )
+}
+
 export default function AllocationPage() {
   const { theme, toggle } = useTheme()
   const city = CITIES[0]
@@ -171,6 +210,24 @@ export default function AllocationPage() {
   const [totalUnits, setTotalUnits] = useState(33000)
   const [model, setModel] = useState(ALLOCATION_MODELS[0].value)
   const [inputUnits, setInputUnits] = useState('33000')
+  const [paramsOpen, setParamsOpen] = useState(false)
+
+  const [alpha, setAlpha] = useState(0.6)
+  const [beta, setBeta] = useState(0.25)
+  const [maxCapFactor, setMaxCapFactor] = useState(2.0)
+  const [equityFloor, setEquityFloor] = useState(0.7)
+  const [minUnitsPerLsoa, setMinUnitsPerLsoa] = useState(6)
+
+  const gamma = Math.max(0, Math.round((1 - alpha - beta) * 100) / 100)
+
+  const hasParams = model !== 'baseline'
+
+  const queryKey = useMemo(() => {
+    const key: (string | number | null)[] = ['allocation-page', city, totalUnits, model]
+    if (model !== 'baseline') key.push(minUnitsPerLsoa)
+    if (model === 'lp') key.push(alpha, beta, maxCapFactor, equityFloor)
+    return key
+  }, [city, totalUnits, model, alpha, beta, maxCapFactor, equityFloor, minUnitsPerLsoa])
 
   const meta = useQuery({
     queryKey: ['meta', city],
@@ -178,9 +235,20 @@ export default function AllocationPage() {
   })
 
   const allocation = useQuery({
-    queryKey: ['allocation', city, totalUnits, model],
-    queryFn: () => fetchAllocation(city, totalUnits, model),
-    staleTime: Infinity,
+    queryKey,
+    queryFn: () => {
+      const req: AllocationRequest = { city, totalUnits, model }
+      if (model !== 'baseline') {
+        req.minUnitsPerLsoa = minUnitsPerLsoa
+      }
+      if (model === 'lp') {
+        req.alpha = alpha
+        req.beta = beta
+        req.maxCapFactor = maxCapFactor
+        req.equityFloor = equityFloor
+      }
+      return fetchAllocation(req)
+    },
   })
 
   const boroughs = meta.data?.boroughs ?? []
@@ -299,9 +367,90 @@ export default function AllocationPage() {
               />
             </div>
 
+            {/* Parameter toggle */}
+            {hasParams && (
+              <button
+                onClick={() => setParamsOpen((o) => !o)}
+                className={`rounded-md border px-3 py-1.5 text-sm ${
+                  paramsOpen
+                    ? 'border-accent bg-accent/15 text-accent'
+                    : 'border-border bg-card text-muted'
+                }`}
+              >
+                Parameters
+              </button>
+            )}
+
             <ThemeToggle theme={theme} onToggle={toggle} />
           </div>
         </div>
+
+        {/* Parameter panel */}
+        {hasParams && paramsOpen && (
+          <div className="mb-5 rounded-lg border border-border bg-card p-5">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {/* LP and Rawls */}
+              <ParamSlider
+                label="Min units / LSOA"
+                value={minUnitsPerLsoa}
+                min={1}
+                max={20}
+                step={1}
+                format={v => String(v)}
+                onChange={setMinUnitsPerLsoa}
+              />
+
+              {model === 'lp' && (
+                <>
+                  <ParamSlider
+                    label="&alpha;: severity weight"
+                    value={alpha}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    format={v => v.toFixed(2)}
+                    onChange={v => {
+                      setAlpha(v)
+                      setBeta(b => Math.min(b, parseFloat((1 - v).toFixed(2))))
+                    }}
+                  />
+                  <ParamSlider
+                    label="&beta;: volume weight"
+                    value={beta}
+                    min={0}
+                    max={parseFloat((1 - alpha).toFixed(2))}
+                    step={0.05}
+                    format={v => v.toFixed(2)}
+                    onChange={setBeta}
+                  />
+                  <div>
+                    <p className="mb-1 text-xs text-muted">&gamma;: diversity weight</p>
+                    <p className="text-lg font-semibold tabular-nums text-fg">{gamma.toFixed(2)}</p>
+                    <p className="text-[11px] text-muted">1 - &alpha; - &beta;</p>
+                  </div>
+                  <ParamSlider
+                    label="Max cap factor"
+                    value={maxCapFactor}
+                    min={1}
+                    max={5}
+                    step={0.1}
+                    format={v => `${v.toFixed(1)}×`}
+                    onChange={setMaxCapFactor}
+                  />
+                  <ParamSlider
+                    label="Equity floor"
+                    value={equityFloor}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    format={v => `${(v * 100).toFixed(0)}%`}
+                    onChange={setEquityFloor}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div className="py-16 text-center">

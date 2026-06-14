@@ -2,6 +2,7 @@
 // the FastAPI backend.
 
 import type {
+    AllocationRequest,
   AllocationResponse,
   BoundaryCollection,
   Level,
@@ -54,11 +55,16 @@ export async function fetchMap(req: MapRequest): Promise<MapResponse> {
   }
 }
 
-export async function fetchAllocation(
-  city: string,
-  totalUnits: number,
-  model: string,
-): Promise<AllocationResponse> {
-  const params = new URLSearchParams({ city: city.toLowerCase(), total_units: String(totalUnits), model })
-  return getJSON<AllocationResponse>(`/api/allocation?${params}`)
+export async function fetchAllocation(req: AllocationRequest): Promise<AllocationResponse> {
+  const p = new URLSearchParams({
+    city: req.city.toLowerCase(),
+    total_units: String(req.totalUnits),
+    model: req.model,
+  })
+  if (req.alpha !== undefined) p.set('alpha', String(req.alpha))
+  if (req.beta !== undefined) p.set('beta', String(req.beta))
+  if (req.maxCapFactor !== undefined) p.set('max_cap_factor', String(req.maxCapFactor))
+  if (req.equityFloor !== undefined) p.set('equity_floor', String(req.equityFloor))
+  if (req.minUnitsPerLsoa !== undefined) p.set('min_units_per_lsoa', String(req.minUnitsPerLsoa))
+  return getJSON<AllocationResponse>(`/api/allocation?${p}`)
 }

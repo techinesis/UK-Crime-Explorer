@@ -50,6 +50,17 @@ export interface WeightRow {
   preventability_anchor: string
 }
 
+export interface AllocationRequest {
+  city: string
+  totalUnits: number
+  model: string
+  alpha?: number
+  beta?: number
+  maxCapFactor?: number
+  equityFloor?: number
+  minUnitsPerLsoa?: number
+}
+
 export interface AllocationEntry {
   lsoa_code: string
   lsoa_name: string
