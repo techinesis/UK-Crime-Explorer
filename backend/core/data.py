@@ -13,7 +13,7 @@ from functools import lru_cache
 import pandas as pd
 
 from core.composite import METRIC_COLUMNS, add_composite_columns
-from core.paths import crime_snapshot, LSOA_TO_WARD_CSV
+from core.paths import crime_snapshot, FORECAST_CSV, LSOA_TO_WARD_CSV
 from core.weights import load_weights
 
 # Exact data-load arguments lifted from app.py:298-312. Do not change without a
@@ -156,6 +156,72 @@ def _enrich(raw: pd.DataFrame) -> pd.DataFrame:
 def get_crime_long(city: str) -> pd.DataFrame:
     """The enriched long crime DataFrame, loaded once and memoised."""
     return _enrich(load_raw_crime(city))
+
+
+def get_forecast_long(city: str) -> pd.DataFrame:
+    """Load the forecast CSV and enrich it to the allocation-model schema.
+
+    LSOAs not present in the forecast file are given historical counts instead.
+    """
+    if not FORECAST_CSV.exists():
+        return get_crime_long(city)
+
+    raw = (
+        pd.read_csv(FORECAST_CSV)
+        .rename(columns={
+            "LSOA code": "lsoa_code",
+            "Crime type": "category",
+            "predicted_crimes": "crime_count",
+        })
+        [["lsoa_code", "category", "crime_count"]]
+        .copy()
+    )
+    raw["lsoa_code"] = raw["lsoa_code"].astype(str)
+    raw["crime_count"] = (
+        pd.to_numeric(raw["crime_count"], errors="coerce")
+        .fillna(0.0)
+        .clip(lower=0)
+    )
+    agg = (
+        raw
+        .groupby(["lsoa_code", "category"], as_index=False)["crime_count"]
+        .sum()
+    )
+    lsoa_totals = agg.groupby("lsoa_code")["crime_count"].sum()
+    forecast_lsoas = set(lsoa_totals[lsoa_totals > 0].index)
+    agg = agg[agg["lsoa_code"].isin(forecast_lsoas)]
+
+    historical = get_crime_long(city)
+    historical_str = historical.assign(lsoa_code=historical["lsoa_code"].astype(str))
+
+    historical_fallback = (
+        historical_str[~historical_str["lsoa_code"].isin(forecast_lsoas)]
+        .groupby(["lsoa_code", "category"], as_index=False)["crime_count"]
+        .sum()
+    )
+
+    combined = pd.concat([agg, historical_fallback], ignore_index=True)
+
+    lsoa_meta = (
+        historical_str[["lsoa_code", "lsoa_name", "borough"]]
+        .drop_duplicates(subset="lsoa_code")
+        .reset_index(drop=True)
+    )
+    combined = combined.merge(lsoa_meta, on="lsoa_code", how="left")
+
+    weights = load_weights()
+    combined = combined.merge(weights, on="category", how="left")
+    unmapped = combined["preventability_multiplier"].isna()
+    if unmapped.any():
+        combined.loc[unmapped, "severity_weight_mean"] = 0.0
+        combined.loc[unmapped, "severity_weight_median"] = 0.0
+        combined.loc[unmapped, "preventability_multiplier"] = 0.0
+    combined["severity_weight_mean"] = combined["severity_weight_mean"].fillna(0.0)
+    combined["severity_weight_median"] = combined["severity_weight_median"].fillna(0.0)
+
+    combined = add_composite_columns(combined)
+
+    return combined
 
 
 def filter_crime_df(

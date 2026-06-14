@@ -28,6 +28,8 @@ UNIT_IDS_JSON = DATA_DIR / "unit_ids.json"
 def crime_snapshot(city: str) -> Path:
     return DATA_DIR / f"crime_snapshot-{city}.parquet"
 
+FORECAST_CSV = Path(os.environ.get("FORECAST_CSV", REPO_ROOT / "outputs" / "forecast_dashboard_long.csv"))
+
 # Source boundary GeoJSON, used only by ETL / pre-bake tooling (not the API).
 LSOA_BOUNDARIES = DATA_DIR / "lsoa_boundaries_clean.geojson"
 BOROUGH_BOUNDARIES = DATA_DIR / "borough_boundaries_clean.geojson"

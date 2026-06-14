@@ -32,6 +32,7 @@ from core.data import (
     aggregate,
     filter_crime_df,
     get_crime_long,
+    get_forecast_long,
 )
 from core.weights import category_metadata, load_weights, weights_records
 from api.chat import register_chat
@@ -228,7 +229,7 @@ def _lsoa_weekly_schedule(crime_shares: dict, units: int, active: float = 0.33) 
 @no_type_check # type checkers aren't too happy about itertuples
 @lru_cache(maxsize=32)
 def _allocation_payload(city: str, total_units: int, model: str) -> AllocationResponse:
-    df = get_crime_long(city)
+    df = get_forecast_long(city)
     resp = AllocationResponse(
         city=city,
         total_units=total_units,
