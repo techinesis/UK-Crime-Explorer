@@ -4,7 +4,7 @@ import { GeoJsonLayer } from '@deck.gl/layers'
 import { Map } from 'react-map-gl/maplibre'
 import type { Feature, Geometry } from 'geojson'
 import { rgbaForValue, type RGBA } from '../lib/colors'
-import type { BoundaryCollection, BoundaryProps, Level, MapResponse, MetaResponse } from '../lib/types'
+import type { AllocationResponse, BoundaryCollection, BoundaryProps, Level, MapResponse, MetaResponse } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
 import { CITIES } from '../hooks/useFilters'
 import { DAYS, lerpRgb, formatHour, CELL_LOW, CELL_HIGH } from '../pages/AllocationPage'
@@ -317,6 +317,7 @@ interface CrimeMapProps {
   metricLabel: string
   theme: Theme
   meta?: MetaResponse
+  allocation?: AllocationResponse
 }
 
 export default function CrimeMap({
@@ -328,6 +329,7 @@ export default function CrimeMap({
   metricLabel,
   theme,
   meta,
+  allocation,
 }: CrimeMapProps) {
   const city = meta?.city ?? CITIES[0]
 
@@ -383,6 +385,12 @@ export default function CrimeMap({
     ]
   }, [filteredBoundaries, values, vmin, vmax, idProp, level, theme, city])
 
+  const scheduleByLsoa = useMemo(() => {
+    const m: Record<string, number[][]> = {}
+    for (const e of allocation?.entries ?? []) m[e.lsoa_code] = e.schedule
+    return m
+  }, [allocation])
+
   const displaySchedule = useCallback((info: PickingInfo) => {
     if (!info.object || level !== 'lsoa' || !isForecast) {
       setPopup(null)
@@ -392,17 +400,7 @@ export default function CrimeMap({
     const feature = info.object as BoundaryFeature
     const props = feature.properties
     const lsoa = String(props.lsoa_code)
-    // const schedule = meta?.schedule?.[lsoa]
-    // Temporary hardcoded schedule:
-    const schedule = [
-      [1, 1, 0, 0, 0, 1, 2, 3, 4, 5, 5, 5, 4, 4, 4, 5, 6, 7, 8, 9, 8, 6, 4, 2],
-      [1, 0, 0, 0, 0, 1, 2, 3, 4, 5, 5, 5, 4, 4, 4, 5, 6, 7, 8, 8, 7, 5, 3, 2],
-      [1, 1, 0, 0, 0, 1, 2, 3, 4, 5, 5, 5, 4, 4, 4, 5, 6, 7, 9, 9, 8, 6, 4, 2],
-      [2, 1, 0, 0, 0, 1, 2, 3, 4, 5, 5, 5, 4, 4, 5, 5, 7, 8, 9, 10, 9, 7, 5, 3],
-      [3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 5, 5, 4, 4, 5, 6, 8, 9, 11, 13, 14, 12, 9, 6],
-      [5, 4, 3, 2, 1, 1, 2, 2, 3, 4, 4, 4, 4, 4, 5, 6, 8, 10, 12, 14, 15, 14, 11, 8],
-      [4, 3, 2, 1, 0, 1, 1, 2, 3, 3, 4, 4, 4, 3, 3, 4, 5, 6, 7, 8, 7, 5, 4, 3],
-    ]
+    const schedule = scheduleByLsoa[lsoa]
 
     if (!schedule) {
       setPopup(null)
@@ -417,7 +415,7 @@ export default function CrimeMap({
       x: info.x,
       y: info.y,
     })
-  }, [meta?.schedule, level, isForecast])
+  }, [scheduleByLsoa, level, isForecast])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -445,6 +443,9 @@ export default function CrimeMap({
                 : value.toLocaleString(undefined, { maximumFractionDigits: 1 })
             }`,
           )
+          if (isForecast) {
+            rows.push("<span className=\"text-xs text-muted\">Click to see unit allocation schedule.</span>")
+          }
           return {
             html: rows.join('<br/>'),
             style: {

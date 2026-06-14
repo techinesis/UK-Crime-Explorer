@@ -3,6 +3,7 @@ import type { Level, Metric, SeverityBasis } from '../lib/types'
 
 export type ForecastMode = 'historical' | 'forecast'
 export type ForecastModel = 'xgboost' | 'baseline'
+export type AllocationModel = typeof ALLOCATION_MODELS[number]['value']
 
 export interface FilterState {
   categories: string[] // empty = all
@@ -19,12 +20,19 @@ export interface FilterState {
   mode: ForecastMode
   forecastHorizon: number
   forecastModel: ForecastModel
+  allocationModel: AllocationModel
+  totalUnits: number
 }
 
 export const TIER_ALL = 'All tiers'
 export const YEAR_ALL = 'All years'
 export const BOROUGH_ALL = 'All boroughs'
 export const CITIES = ['London', 'Birmingham', 'Manchester', 'Liverpool']
+export const ALLOCATION_MODELS = [
+  { value: 'lp', label: 'LP Optimisation' },
+  { value: 'rawls', label: 'Rawls LP Optimisation' },
+  { value: 'baseline', label: 'Proportional baseline' },
+]
 
 export const DEFAULT_FILTERS: FilterState = {
   categories: [],
@@ -41,6 +49,8 @@ export const DEFAULT_FILTERS: FilterState = {
   mode: 'historical',
   forecastHorizon: 1,
   forecastModel: 'xgboost',
+  allocationModel: ALLOCATION_MODELS[0].value,
+  totalUnits: 33_000,
 }
 
 export const METRIC_OPTIONS: Array<{ value: Metric; label: string }> = [

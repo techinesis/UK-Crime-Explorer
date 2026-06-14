@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { MetaResponse } from '../lib/types'
 import {
   BOROUGH_ALL,
@@ -11,6 +11,7 @@ import {
   YEAR_ALL,
   CITIES,
   type FilterState,
+  ALLOCATION_MODELS,
 } from '../hooks/useFilters'
 
 const CONFIDENCE_EMOJI: Record<string, string> = {
@@ -46,6 +47,7 @@ export default function Sidebar({ meta, filters, update }: SidebarProps) {
   const confidenceByCategory = new Map(
     (meta?.categories ?? []).map((c) => [c.name, c.preventability_confidence]),
   )
+  const [inputUnits, setInputUnits] = useState('33000')
 
   const toggleCategory = (name: string) => {
     const set = new Set(filters.categories)
@@ -69,6 +71,11 @@ export default function Sidebar({ meta, filters, update }: SidebarProps) {
     }
 
     update({ months: [...set].sort((a, b) => a - b) })
+  }
+
+  function commitUnits() {
+    const v = parseInt(inputUnits, 10)
+    if (Number.isFinite(v) && v > 0) update({ totalUnits: v })
   }
 
   const isForecast = filters.mode === 'forecast'
@@ -133,6 +140,45 @@ export default function Sidebar({ meta, filters, update }: SidebarProps) {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Allocation model
+              </label>
+
+              <select
+                className={selectClass}
+                value={filters.allocationModel}
+                onChange={(e) =>
+                  update({ allocationModel: e.target.value as FilterState['allocationModel'] })
+                }
+              >
+                {ALLOCATION_MODELS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Units
+              </label>
+
+              <input
+                type="number"
+                className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                min={100}
+                max={50000}
+                step={100}
+                value={inputUnits}
+                onChange={(e) => setInputUnits(e.target.value)}
+                onBlur={commitUnits}
+                onKeyDown={(e) => e.key === 'Enter' && commitUnits()}
+                >
+              </input>
             </div>
 
             <p className="rounded-md bg-surface p-2 text-[11px] text-muted">

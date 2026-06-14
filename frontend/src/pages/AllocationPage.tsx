@@ -2,17 +2,12 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchAllocation, fetchMeta } from '../lib/api'
 import { useTheme } from '../hooks/useTheme'
-import { BOROUGH_ALL, CITIES } from '../hooks/useFilters'
+import { ALLOCATION_MODELS, BOROUGH_ALL, CITIES } from '../hooks/useFilters'
 import ThemeToggle from '../components/ThemeToggle'
 import type { AllocationEntry } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
-const MODELS = [
-  { value: 'lp', label: 'LP Optimisation' },
-  { value: 'rawls', label: 'Rawls LP Optimisation' },
-  { value: 'baseline', label: 'Proportional baseline' },
-]
 
 export function formatHour(h: number): string {
   if (h === 0) return '12am'
@@ -174,7 +169,7 @@ export default function AllocationPage() {
   const city = CITIES[0]
   const [borough, setBorough] = useState(BOROUGH_ALL)
   const [totalUnits, setTotalUnits] = useState(33000)
-  const [model, setModel] = useState(MODELS[0].value)
+  const [model, setModel] = useState(ALLOCATION_MODELS[0].value)
   const [inputUnits, setInputUnits] = useState('33000')
 
   const meta = useQuery({
@@ -281,7 +276,7 @@ export default function AllocationPage() {
               value={model}
               onChange={(e) => setModel(e.target.value)}
             >
-              {MODELS.map((m) => (
+              {ALLOCATION_MODELS.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
                 </option>

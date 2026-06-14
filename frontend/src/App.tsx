@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { fetchMeta, fetchWeights } from './lib/api'
+import { fetchAllocation, fetchMeta, fetchWeights } from './lib/api'
 import { useCrimeData } from './hooks/useCrimeData'
 import { metricCaption, useFilters } from './hooks/useFilters'
 import { useAnimation } from './hooks/useAnimation'
@@ -51,11 +51,11 @@ function Dashboard() {
   
   const meta = useQuery({ queryKey: ['meta', filters.city], queryFn: () => fetchMeta(filters.city) })
   const weights = useQuery({ queryKey: ['weights', filters.city], queryFn: fetchWeights })
+  const allocation = useQuery({ queryKey: ['allocation', filters.city, filters.totalUnits, filters.allocationModel], queryFn: () => {
+    return fetchAllocation(filters.city, filters.totalUnits, filters.allocationModel)
+  }})
 
   const { boundaries, map, boroughMap } = useCrimeData(filters)
-
-  console.log(meta.data);
-  console.log(map.data);
 
   const isForecast = filters.mode === 'forecast'
 
@@ -119,6 +119,7 @@ function Dashboard() {
               metricLabel={caption}
               theme={theme}
               meta={meta.data}
+              allocation={allocation.data}
             />
           </div>
 
