@@ -100,7 +100,14 @@ export function useFilters(initial: FilterState = DEFAULT_FILTERS) {
   const [filters, setFilters] = useState<FilterState>(initial)
 
   const update = useCallback((patch: Partial<FilterState>) => {
-    setFilters((prev) => ({ ...prev, ...patch }))
+    setFilters((prev) => {
+      const isForecast = patch.mode ? patch.mode === "forecast" : prev.mode === "forecast"
+      if (isForecast) {
+        // XXX: forecasting currently forces London, if functionality changes this should be undone
+        patch.city = "london"
+      }
+      return ({ ...prev, ...patch })
+    })
   }, [])
 
   return { filters, update, setFilters }
