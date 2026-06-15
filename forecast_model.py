@@ -11,9 +11,8 @@ Outputs:
 - outputs/test_predictions_dashboard.csv
 - outputs/model_evaluation_70_30.csv
 - outputs/model_metadata.json
-- outputs/xgb_split_model_top5.json
-- outputs/xgb_split_model_others.json
 - outputs/xgb_tier_T1.json, xgb_tier_T2.json, xgb_tier_T3.json
+- outputs/rf_tier_T1.json, rf_tier_T2.json, rf_tier_T3.json
 
 Run:
 python forecast_model.py --data-dir test_data --output-dir outputs --forecast-months 12
@@ -31,9 +30,7 @@ from typing import List, Optional
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from sklearn.preprocessing import OneHotEncoder
 
 REQUIRED_COLUMNS = {"Month", "LSOA code", "Crime type"}
 
@@ -70,6 +67,7 @@ class CrimePredictionModel:
         self.period_end = None
         self.last_data_month = None
         self.base_month_dt = None
+        self.bias_month_count = 0
         
         self.models = {'xgb': {}, 'rf': {}}
         self.bias_factors = {'xgb': {}, 'rf': {}}
@@ -126,6 +124,7 @@ class CrimePredictionModel:
 
         train_months = all_months[:-6]
         bias_months = all_months[-6:]
+        self.bias_month_count = len(bias_months)
         
         df_train = agg_df[agg_df['Month'].isin(train_months)].copy()
         df_bias = agg_df[agg_df['Month'].isin(bias_months)].copy()
@@ -175,13 +174,11 @@ class CrimePredictionModel:
             self.models['xgb'][tier_name] = xgb_model
 
             # --- XGBoost Random Forest (Optimized for Memory) ---
-            # Instead of XGBRFRegressor
-            # with specific RF-like parameters to stay memory-efficient.
             rf_model = xgb.XGBRegressor(
                 n_estimators=100, 
                 max_depth=8, 
-                subsample=0.8,      #RF behavior
-                colsample_bytree=0.8,     #RF behavior
+                subsample=0.8,      # RF behavior
+                colsample_bytree=0.8,     # RF behavior
                 enable_categorical=True, 
                 tree_method="hist", 
                 verbosity=0, 
@@ -200,20 +197,16 @@ class CrimePredictionModel:
                 self.bias_factors['rf'][tier_name] = 0.0
 
         self.is_trained = True
-        print(f"[4/4] Success! Model trained on {len(train_months)} months with 6 months bias.")
+        print(f"[4/4] Success! Model trained on {len(train_months)} months with {self.bias_month_count} months bias.")
 
-    def predict(self):
+    def predict_month(self, month_str: str) -> pd.DataFrame:
+        """Predicts a specific month string (e.g., '2026-05')"""
         if not self.is_trained:
             raise RuntimeError("Cannot predict: Model is not trained yet. Run trainAndBias() first.")
 
-        year, month = int(self.last_data_month[:4]), int(self.last_data_month[5:])
-        month += 1
-        if month > 12: month, year = 1, year + 1
-        next_month_str = f"{year}-{month:02d}"
-
         all_combos = list(product(self.unique_lsoas, self.unique_crimes))
         df_pred = pd.DataFrame(all_combos, columns=['LSOA code', 'Crime type'])
-        df_pred['Month'] = next_month_str
+        df_pred['Month'] = month_str
         df_pred = self._add_time_features(df_pred)
 
         xgb_all, rf_all = np.zeros(len(df_pred)), np.zeros(len(df_pred))
@@ -241,6 +234,24 @@ class CrimePredictionModel:
         return df_pred[['Month', 'LSOA code', 'Crime type', 
                         'XGB_Prediction', 'RF_Prediction', 'Ensemble_7030_Prediction']]
 
+    def predict_horizon(self, months_ahead: int) -> pd.DataFrame:
+        """Loops through future months and aggregates the predictions"""
+        predictions = []
+        for i in range(1, months_ahead + 1):
+            next_month = add_months(self.last_data_month, i)
+            predictions.append(self.predict_month(next_month))
+        return pd.concat(predictions, ignore_index=True)
+
+    def save_xgb_models(self, output_dir: Path):
+        """Saves the XGB and RF models to JSON format for the dashboard backend"""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for tier_name in ['T1', 'T2', 'T3']:
+            if tier_name in self.models['xgb']:
+                self.models['xgb'][tier_name].save_model(output_dir / f"xgb_tier_{tier_name}.json")
+            if tier_name in self.models['rf']:
+                self.models['rf'][tier_name].save_model(output_dir / f"rf_tier_{tier_name}.json")
+        print("Exported JSON model weights successfully.")
+
     def _add_time_features(self, df):
         dates = pd.to_datetime(df['Month'])
         df['Month_Num'] = dates.dt.month
@@ -248,7 +259,6 @@ class CrimePredictionModel:
         return df
 
     def _prep_X(self, df):
-        # Universal prep for both XGBoost and XGB-RF
         X = df[['Time_Index', 'Month_Num', 'LSOA code', 'Crime type']].copy()
         X['LSOA code'] = X['LSOA code'].astype(self.lsoa_cat_dtype)
         X['Crime type'] = X['Crime type'].astype(self.crime_cat_dtype)
@@ -260,6 +270,7 @@ class CrimePredictionModel:
 
     def _apply_correction(self, preds_arr, factor):
         return preds_arr * (1.0 / (1.0 + factor)) if abs(factor) > 1e-9 else preds_arr
+
 
 def infer_month_from_path(file_path: Path) -> Optional[str]:
     import re
@@ -339,7 +350,9 @@ def evaluate_70_30(raw_df: pd.DataFrame):
 
     test_dashboard = dashboard_format(merged, "test_prediction")
     mae = mean_absolute_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"])
-    rmse = mean_squared_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"], squared=False)
+    
+    # Safe RMSE calculation that won't break on older scikit-learn versions
+    rmse = np.sqrt(mean_squared_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"]))
 
     evaluation = pd.DataFrame([
         {
@@ -424,8 +437,7 @@ def main():
         "test_predictions_dashboard.csv",
         "model_evaluation_70_30.csv",
         "model_metadata.json",
-        "xgb_split_model_top5.json",
-        "xgb_split_model_others.json",
+        "xgb_tier_T1.json, rf_tier_T1.json, etc..."
     ]:
         print(f"- {args.output_dir / name}")
 
