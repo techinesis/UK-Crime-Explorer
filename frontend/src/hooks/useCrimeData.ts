@@ -95,7 +95,7 @@ function pickProperty(properties: Record<string, any>, possibleNames: string[]) 
 }
 
 async function fetchForecastMap(filters: FilterState) {
-  const response = await fetch('/forecast_dashboard_long.json')
+  const response = await fetch('/boundaries/forecast_dashboard_long.json')
 
   if (!response.ok) {
     throw new Error('Could not load forecast_dashboard_long.json')
@@ -235,6 +235,7 @@ async function fetchForecastMap(filters: FilterState) {
 
   return {
     values,
+    crime_counts: values,
     rows: filteredRows,
     vmin: numericValues.length > 0 ? Math.min(...numericValues) : 0,
     vmax: numericValues.length > 0 ? Math.max(...numericValues) : 1,
