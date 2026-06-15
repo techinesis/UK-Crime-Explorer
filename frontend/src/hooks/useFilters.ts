@@ -45,6 +45,15 @@ export const ALLOCATION_MODELS = [
   { value: 'baseline', label: 'Proportional baseline' },
 ]
 
+export const DEFAULT_ALLOCATION_PARAMS = {
+  allocAlpha: 0.6,
+  allocBeta: 0.25,
+  allocMaxCapFactor: 2.0,
+  allocEquityFloor: 0.7,
+
+  allocMinUnitsPerLsoa: 6,
+} satisfies Partial<FilterState>
+
 export const DEFAULT_FILTERS: FilterState = {
   categories: [],
   tier: TIER_ALL,
@@ -63,13 +72,7 @@ export const DEFAULT_FILTERS: FilterState = {
 
   allocationModel: ALLOCATION_MODELS[0].value,
   totalUnits: 33_000,
-
-  allocAlpha: 0.6,
-  allocBeta: 0.25,
-  allocMaxCapFactor: 2.0,
-  allocEquityFloor: 0.7,
-
-  allocMinUnitsPerLsoa: 6,
+  ...DEFAULT_ALLOCATION_PARAMS
 }
 
 export const METRIC_OPTIONS: Array<{ value: Metric; label: string }> = [

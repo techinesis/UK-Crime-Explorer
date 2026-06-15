@@ -12,6 +12,7 @@ import {
   CITIES,
   type FilterState,
   ALLOCATION_MODELS,
+  DEFAULT_ALLOCATION_PARAMS,
 } from '../hooks/useFilters'
 
 const CONFIDENCE_EMOJI: Record<string, string> = {
@@ -306,6 +307,22 @@ export default function Sidebar({ meta, filters, update }: SidebarProps) {
                         onPointerUp={e => update({ allocEquityFloor: Number((e.target as HTMLInputElement).value) })}
                         className="w-full accent-accent"
                       />
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        onClick={() => {
+                          setAllocParams({
+                            alpha: DEFAULT_ALLOCATION_PARAMS.allocAlpha,
+                            beta: DEFAULT_ALLOCATION_PARAMS.allocBeta,
+                            maxCapFactor: DEFAULT_ALLOCATION_PARAMS.allocMaxCapFactor,
+                            equityFloor: DEFAULT_ALLOCATION_PARAMS.allocEquityFloor,
+                            minUnitsPerLsoa: DEFAULT_ALLOCATION_PARAMS.allocMinUnitsPerLsoa,
+                          })
+                        }}
+                        className='rounded-md border px-3 py-1.5 text-sm border-border bg-card text-fg hover:border-accent'
+                      >
+                        Restore Defaults
+                      </button>
                     </div>
                   </>
                 )}

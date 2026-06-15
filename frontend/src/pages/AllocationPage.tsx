@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchAllocation, fetchMeta } from '../lib/api'
 import { useTheme } from '../hooks/useTheme'
-import { ALLOCATION_MODELS, BOROUGH_ALL, CITIES } from '../hooks/useFilters'
+import { ALLOCATION_MODELS, BOROUGH_ALL, CITIES, DEFAULT_ALLOCATION_PARAMS, DEFAULT_FILTERS } from '../hooks/useFilters'
 import ThemeToggle from '../components/ThemeToggle'
 import type { AllocationEntry, AllocationRequest } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
@@ -207,16 +207,16 @@ export default function AllocationPage() {
   const { theme, toggle } = useTheme()
   const city = CITIES[0]
   const [borough, setBorough] = useState(BOROUGH_ALL)
-  const [totalUnits, setTotalUnits] = useState(33000)
+  const [totalUnits, setTotalUnits] = useState(DEFAULT_FILTERS.totalUnits)
   const [model, setModel] = useState(ALLOCATION_MODELS[0].value)
-  const [inputUnits, setInputUnits] = useState('33000')
+  const [inputUnits, setInputUnits] = useState(`${DEFAULT_FILTERS.totalUnits}`)
   const [paramsOpen, setParamsOpen] = useState(false)
 
-  const [alpha, setAlpha] = useState(0.6)
-  const [beta, setBeta] = useState(0.25)
-  const [maxCapFactor, setMaxCapFactor] = useState(2.0)
-  const [equityFloor, setEquityFloor] = useState(0.7)
-  const [minUnitsPerLsoa, setMinUnitsPerLsoa] = useState(6)
+  const [alpha, setAlpha] = useState(DEFAULT_ALLOCATION_PARAMS.allocAlpha)
+  const [beta, setBeta] = useState(DEFAULT_ALLOCATION_PARAMS.allocBeta)
+  const [maxCapFactor, setMaxCapFactor] = useState(DEFAULT_ALLOCATION_PARAMS.allocMaxCapFactor)
+  const [equityFloor, setEquityFloor] = useState(DEFAULT_ALLOCATION_PARAMS.allocEquityFloor)
+  const [minUnitsPerLsoa, setMinUnitsPerLsoa] = useState(DEFAULT_ALLOCATION_PARAMS.allocMinUnitsPerLsoa)
 
   const gamma = Math.max(0, Math.round((1 - alpha - beta) * 100) / 100)
 
@@ -449,6 +449,23 @@ export default function AllocationPage() {
                 </>
               )}
             </div>
+
+            {paramsOpen && (
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => {
+                    setAlpha(DEFAULT_ALLOCATION_PARAMS.allocAlpha)
+                    setBeta(DEFAULT_ALLOCATION_PARAMS.allocBeta)
+                    setMaxCapFactor(DEFAULT_ALLOCATION_PARAMS.allocMaxCapFactor)
+                    setEquityFloor(DEFAULT_ALLOCATION_PARAMS.allocEquityFloor)
+                    setMinUnitsPerLsoa(DEFAULT_ALLOCATION_PARAMS.allocMinUnitsPerLsoa)
+                  }}
+                  className='rounded-md border px-3 py-1.5 text-sm border-border bg-card text-fg hover:border-accent'
+                >
+                  Restore Defaults
+                </button>
+              </div>
+            )}
           </div>
         )}
 
