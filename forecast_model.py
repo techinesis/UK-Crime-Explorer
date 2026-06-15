@@ -15,7 +15,7 @@ Outputs:
 - outputs/rf_tier_T1.json, rf_tier_T2.json, rf_tier_T3.json
 
 Run:
-python forecast_model.py --data-dir test_data --output-dir outputs --forecast-months 12
+python forecast_model.py --data-dir .cache/crime-data/london --output-dir frontend/public --forecast-months 12
 """
 
 from __future__ import annotations
@@ -88,11 +88,11 @@ class CrimePredictionModel:
         self._reset_state()
         print("\n[1/4] Validating and aggregating data...")
 
-        required_cols = {'Month', 'LSOA code', 'Crime type'}
+        required_cols = {'Month', 'LSOA code', 'Crime type', 'Number of occurrences'}
         if not required_cols.issubset(df.columns):
-            raise ValueError(f"Input DataFrame is missing required columns. Need at least: {required_cols}")
+            raise ValueError(f"Input DataFrame is missing required columns. Need at least: {required_cols}, got {df.columns}")
 
-        raw_agg = df.groupby(['Month', 'LSOA code', 'Crime type']).size().reset_index(name='Number of occurrences')
+        raw_agg = df
 
         all_months = sorted(raw_agg['Month'].unique().tolist())
         self.unique_lsoas = sorted(raw_agg['LSOA code'].unique())
@@ -199,8 +199,7 @@ class CrimePredictionModel:
         self.is_trained = True
         print(f"[4/4] Success! Model trained on {len(train_months)} months with {self.bias_month_count} months bias.")
 
-    def predict_month(self, month_str: str) -> pd.DataFrame:
-        """Predicts a specific month string (e.g., '2026-05')"""
+    def predict(self, month_str: str) -> pd.DataFrame:
         if not self.is_trained:
             raise RuntimeError("Cannot predict: Model is not trained yet. Run trainAndBias() first.")
 
@@ -239,7 +238,7 @@ class CrimePredictionModel:
         predictions = []
         for i in range(1, months_ahead + 1):
             next_month = add_months(self.last_data_month, i)
-            predictions.append(self.predict_month(next_month))
+            predictions.append(self.predict(next_month))
         return pd.concat(predictions, ignore_index=True)
 
     def save_xgb_models(self, output_dir: Path):
@@ -292,7 +291,8 @@ def load_raw_crime_data(data_dir: Path) -> pd.DataFrame:
     frames, skipped = [], []
     for csv_path in csvs:
         try:
-            df = pd.read_csv(csv_path, low_memory=False)
+            df = pd.read_csv(csv_path, low_memory=False).rename(columns={"lsoa_code": "LSOA code", "category": "Crime type", "crime_count": "Number of occurrences"})
+            df["Month"] = df.apply(lambda x: f"{x["year"]:04}-{x["month"]:02}", axis=1)
         except Exception as exc:
             skipped.append((str(csv_path), f"read error: {exc}"))
             continue
@@ -302,7 +302,7 @@ def load_raw_crime_data(data_dir: Path) -> pd.DataFrame:
         if not REQUIRED_COLUMNS.issubset(df.columns):
             skipped.append((str(csv_path), "missing required columns"))
             continue
-        df = df[["Month", "LSOA code", "Crime type"]].dropna().copy()
+        df = df[["Month", "LSOA code", "Crime type", "Number of occurrences"]].dropna().copy()
         frames.append(df)
     for path, reason in skipped[:10]:
         print(f"Skipping {path}: {reason}")
@@ -329,7 +329,7 @@ def actual_grid(raw_df: pd.DataFrame, months: List[str], lsoas: List[str], crime
 
 def chronological_train_test(raw_df: pd.DataFrame, train_ratio: float = 0.7):
     months = sorted(raw_df["Month"].unique())
-    split_idx = max(2, int(len(months) * train_ratio))
+    split_idx = max(30, int(len(months) * train_ratio))
     if split_idx >= len(months):
         split_idx = len(months) - 1
     return months[:split_idx], months[split_idx:]
@@ -343,7 +343,7 @@ def evaluate_70_30(raw_df: pd.DataFrame):
     eval_model = CrimePredictionModel()
     eval_model.trainAndBias(train_df)
 
-    preds = pd.concat([eval_model.predict_month(m) for m in test_months], ignore_index=True)
+    preds = pd.concat([eval_model.predict(m) for m in test_months], ignore_index=True)
     actuals = actual_grid(test_df, test_months, eval_model.unique_lsoas, eval_model.unique_crimes)
     merged = preds.merge(actuals, on=["Month", "LSOA code", "Crime type"], how="left")
     merged["actual_crimes"] = merged["actual_crimes"].fillna(0).astype(int)
@@ -352,6 +352,7 @@ def evaluate_70_30(raw_df: pd.DataFrame):
     mae = mean_absolute_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"])
     
     # Safe RMSE calculation that won't break on older scikit-learn versions
+    rmse = np.sqrt(mean_squared_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"]))
     rmse = np.sqrt(mean_squared_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"]))
 
     evaluation = pd.DataFrame([
@@ -372,8 +373,8 @@ def evaluate_70_30(raw_df: pd.DataFrame):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", type=Path, default=Path("test_data"))
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
+    parser.add_argument("--data-dir", type=Path, default=Path(".cache/crime-data/london"))
+    parser.add_argument("--output-dir", type=Path, default=Path("frontend/public/"))
     parser.add_argument("--forecast-months", type=int, default=12)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)

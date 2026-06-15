@@ -95,7 +95,7 @@ function pickProperty(properties: Record<string, any>, possibleNames: string[]) 
 }
 
 async function fetchForecastMap(filters: FilterState) {
-  const response = await fetch('/boundaries/forecast_dashboard_long.json')
+  const response = await fetch('/forecast_dashboard_long.json')
 
   if (!response.ok) {
     throw new Error('Could not load forecast_dashboard_long.json')
