@@ -46,9 +46,22 @@ def add_months(month_str: str, months: int) -> str:
 
 
 class CrimePredictionModel:
-    """Teammate 3-tier ensemble: 70% XGBoost + 30% Random Forest."""
+    """
+    Singleton Class: CrimePredictionModel
+    Represents a 3-tier ensemble model (70% XGBoost, 30% Random Forest).
+    OPTIMIZED: Uses XGBoost's native backend for BOTH algorithms. No One-Hot Encoders!
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(CrimePredictionModel, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
 
     def __init__(self):
+        if self._initialized: return
+        self._initialized = True
         self._reset_state()
 
     def _reset_state(self):
@@ -57,186 +70,196 @@ class CrimePredictionModel:
         self.period_end = None
         self.last_data_month = None
         self.base_month_dt = None
-        self.models = {"xgb": {}, "rf": {}}
-        self.bias_factors = {"xgb": {}, "rf": {}}
+        
+        self.models = {'xgb': {}, 'rf': {}}
+        self.bias_factors = {'xgb': {}, 'rf': {}}
         self.tiers = {}
-        self.ohe = None
+        
         self.unique_lsoas = []
         self.unique_crimes = []
         self.lsoa_cat_dtype = None
         self.crime_cat_dtype = None
-        self.bias_month_count = None
 
-    def trainAndBias(self, df: pd.DataFrame):
+    def status(self):
+        if self.is_trained:
+            print(f"model trained on period: {self.period_start} to {self.period_end}")
+        else:
+            print("model not trained yet")
+
+    def trainAndBias(self, df):
         self._reset_state()
-        if not REQUIRED_COLUMNS.issubset(df.columns):
-            raise ValueError(f"Input DataFrame is missing required columns. Need at least: {REQUIRED_COLUMNS}")
+        print("\n[1/4] Validating and aggregating data...")
 
-        raw_agg = df.groupby(["Month", "LSOA code", "Crime type"]).size().reset_index(name="Number of occurrences")
-        all_months = sorted(raw_agg["Month"].unique().tolist())
-        self.unique_lsoas = sorted(raw_agg["LSOA code"].dropna().unique().tolist())
-        self.unique_crimes = sorted(raw_agg["Crime type"].dropna().unique().tolist())
+        required_cols = {'Month', 'LSOA code', 'Crime type'}
+        if not required_cols.issubset(df.columns):
+            raise ValueError(f"Input DataFrame is missing required columns. Need at least: {required_cols}")
 
-        if len(all_months) < 3:
-            raise ValueError(f"Insufficient data: needs at least 3 months. Found {len(all_months)}.")
+        raw_agg = df.groupby(['Month', 'LSOA code', 'Crime type']).size().reset_index(name='Number of occurrences')
 
+        all_months = sorted(raw_agg['Month'].unique().tolist())
+        self.unique_lsoas = sorted(raw_agg['LSOA code'].unique())
+        self.unique_crimes = sorted(raw_agg['Crime type'].unique())
+
+        # Cartesian Product Zero-Fill
         full_idx = pd.MultiIndex.from_product(
-            [all_months, self.unique_lsoas, self.unique_crimes],
-            names=["Month", "LSOA code", "Crime type"],
+            [all_months, self.unique_lsoas, self.unique_crimes], 
+            names=['Month', 'LSOA code', 'Crime type']
         )
         full_df = pd.DataFrame(index=full_idx).reset_index()
-        agg_df = full_df.merge(raw_agg, on=["Month", "LSOA code", "Crime type"], how="left")
-        agg_df["Number of occurrences"] = agg_df["Number of occurrences"].fillna(0)
+        
+        agg_df = pd.merge(full_df, raw_agg, on=['Month', 'LSOA code', 'Crime type'], how='left')
+        agg_df['Number of occurrences'] = agg_df['Number of occurrences'].fillna(0)
+
+        total_months = len(all_months)
+        if total_months < 30:
+            raise ValueError(f"Insufficient data: Requires at least 30 months. Found {total_months}.")
 
         self.period_start = all_months[0]
         self.period_end = all_months[-1]
         self.last_data_month = self.period_end
-        self.base_month_dt = datetime.strptime(self.period_start, "%Y-%m")
+        self.base_month_dt = datetime.strptime(self.period_start, '%Y-%m')
+
         self.lsoa_cat_dtype = pd.CategoricalDtype(categories=self.unique_lsoas)
         self.crime_cat_dtype = pd.CategoricalDtype(categories=self.unique_crimes)
 
         agg_df = self._add_time_features(agg_df)
 
-        # Original teammate model used last 6 months as bias buffer.
-        # This version automatically shrinks the buffer if your dataset is small.
-        if len(all_months) >= 30:
-            bias_n = 6
-        else:
-            bias_n = max(1, min(3, len(all_months) // 4))
-        if len(all_months) - bias_n < 2:
-            bias_n = 1
-        self.bias_month_count = bias_n
+        train_months = all_months[:-6]
+        bias_months = all_months[-6:]
+        
+        df_train = agg_df[agg_df['Month'].isin(train_months)].copy()
+        df_bias = agg_df[agg_df['Month'].isin(bias_months)].copy()
 
-        train_months = all_months[:-bias_n]
-        bias_months = all_months[-bias_n:]
-        df_train = agg_df[agg_df["Month"].isin(train_months)].copy()
-        df_bias = agg_df[agg_df["Month"].isin(bias_months)].copy()
+        # =====================================================================
+        # LOGARITHMIC TIER SPLITTING 
+        # =====================================================================
+        print("[2/4] Calculating Logarithmic Tier Split...")
+        last_train_month = train_months[-1]
+        lsoa_vol = df_train[df_train['Month'] == last_train_month].groupby('LSOA code')['Number of occurrences'].sum()
+        lsoa_vol = lsoa_vol.reindex(self.unique_lsoas).fillna(0) 
+        
+        max_vol = max(1, lsoa_vol.max()) 
+        
+        thresh1 = 10 ** (np.log10(max_vol) / 3.0)
+        thresh2 = 10 ** (2.0 * np.log10(max_vol) / 3.0)
+        
+        self.tiers['T3'] = lsoa_vol[lsoa_vol <= thresh1].index.tolist()
+        self.tiers['T2'] = lsoa_vol[(lsoa_vol > thresh1) & (lsoa_vol <= thresh2)].index.tolist()
+        self.tiers['T1'] = lsoa_vol[lsoa_vol > thresh2].index.tolist()
+        
+        print(f"      -> Max LSOA volume last month: {max_vol:.0f}")
+        print(f"      -> T1 (High > {thresh2:.1f}): {len(self.tiers['T1'])} LSOAs")
+        print(f"      -> T2 (Med {thresh1:.1f}-{thresh2:.1f}): {len(self.tiers['T2'])} LSOAs")
+        print(f"      -> T3 (Low <= {thresh1:.1f}): {len(self.tiers['T3'])} LSOAs")
 
-        self.ohe = OneHotEncoder(handle_unknown="ignore", sparse_output=False).fit(agg_df[["LSOA code", "Crime type"]])
-
-        lsoa_vol = df_train.groupby("LSOA code")["Number of occurrences"].sum().sort_values(ascending=False)
-        self.tiers["T1"] = lsoa_vol.index[:1].tolist()
-        self.tiers["T2"] = lsoa_vol.index[1:6].tolist()
-        self.tiers["T3"] = lsoa_vol.index[6:].tolist()
-
-        for tier_name in ["T1", "T2", "T3"]:
+        # =====================================================================
+        # NATIVE C++ TRAINING (NO ONE-HOT ENCODERS)
+        # =====================================================================
+        print("[3/4] Training Native C++ Models (Ultra-Fast)...")
+        for tier_name in ['T1', 'T2', 'T3']:
             tier_lsoas = self.tiers[tier_name]
-            if not tier_lsoas:
-                continue
-            tr = df_train[df_train["LSOA code"].isin(tier_lsoas)].copy()
-            bi = df_bias[df_bias["LSOA code"].isin(tier_lsoas)].copy()
-            if tr.empty:
-                continue
+            if not tier_lsoas: continue
 
-            xgb_model = xgb.XGBRegressor(
-                n_estimators=200,
-                max_depth=6,
-                learning_rate=0.1,
-                objective="count:poisson",
-                enable_categorical=True,
-                tree_method="hist",
-                verbosity=0,
-                random_state=42,
-            )
-            xgb_model.fit(self._xgb_X(tr), tr["Number of occurrences"])
-            self.models["xgb"][tier_name] = xgb_model
+            print(f"      -> Processing {tier_name}...")
+            tr = df_train[df_train['LSOA code'].isin(tier_lsoas)].copy()
+            bi = df_bias[df_bias['LSOA code'].isin(tier_lsoas)].copy()
 
-            rf_model = RandomForestRegressor(
-                n_estimators=150,
-                max_depth=10,
-                min_samples_leaf=3,
-                n_jobs=-1,
-                random_state=42,
+            if tr.empty: continue
+
+            X_tr = self._prep_X(tr)
+            
+            # --- XGBoost ---
+            xgb_model = xgb.XGBRegressor(n_estimators=200, max_depth=6, learning_rate=0.1,
+                                         enable_categorical=True, tree_method='hist', verbosity=0)
+            xgb_model.fit(X_tr, tr['Number of occurrences'])
+            self.models['xgb'][tier_name] = xgb_model
+
+            # --- XGBoost Random Forest (Optimized for Memory) ---
+            # Instead of XGBRFRegressor
+            # with specific RF-like parameters to stay memory-efficient.
+            rf_model = xgb.XGBRegressor(
+                n_estimators=100, 
+                max_depth=8, 
+                subsample=0.8,      #RF behavior
+                colsample_bytree=0.8,     #RF behavior
+                enable_categorical=True, 
+                tree_method="hist", 
+                verbosity=0, 
+                random_state=42
             )
-            rf_model.fit(self._rf_X(tr), tr["Number of occurrences"])
+            rf_model.fit(X_tr, tr["Number of occurrences"])
             self.models["rf"][tier_name] = rf_model
 
+            # Bias Calculation
             if not bi.empty:
-                self.bias_factors["xgb"][tier_name] = self._calc_bias(
-                    xgb_model.predict(self._xgb_X(bi)), bi["Number of occurrences"]
-                )
-                self.bias_factors["rf"][tier_name] = self._calc_bias(
-                    rf_model.predict(self._rf_X(bi)), bi["Number of occurrences"]
-                )
+                X_bi = self._prep_X(bi)
+                self.bias_factors['xgb'][tier_name] = self._calc_bias(xgb_model.predict(X_bi), bi['Number of occurrences'])
+                self.bias_factors['rf'][tier_name] = self._calc_bias(rf_model.predict(X_bi), bi['Number of occurrences'])
             else:
-                self.bias_factors["xgb"][tier_name] = 0.0
-                self.bias_factors["rf"][tier_name] = 0.0
+                self.bias_factors['xgb'][tier_name] = 0.0
+                self.bias_factors['rf'][tier_name] = 0.0
 
         self.is_trained = True
-        print(f"Model trained on {len(train_months)} months with {bias_n} bias month(s)")
+        print(f"[4/4] Success! Model trained on {len(train_months)} months with 6 months bias.")
 
-    def predict_month(self, month_str: str) -> pd.DataFrame:
+    def predict(self):
         if not self.is_trained:
-            raise RuntimeError("Cannot predict: model is not trained yet.")
+            raise RuntimeError("Cannot predict: Model is not trained yet. Run trainAndBias() first.")
 
-        df_pred = pd.DataFrame(product(self.unique_lsoas, self.unique_crimes), columns=["LSOA code", "Crime type"])
-        df_pred["Month"] = month_str
+        year, month = int(self.last_data_month[:4]), int(self.last_data_month[5:])
+        month += 1
+        if month > 12: month, year = 1, year + 1
+        next_month_str = f"{year}-{month:02d}"
+
+        all_combos = list(product(self.unique_lsoas, self.unique_crimes))
+        df_pred = pd.DataFrame(all_combos, columns=['LSOA code', 'Crime type'])
+        df_pred['Month'] = next_month_str
         df_pred = self._add_time_features(df_pred)
 
-        xgb_all = np.zeros(len(df_pred))
-        rf_all = np.zeros(len(df_pred))
+        xgb_all, rf_all = np.zeros(len(df_pred)), np.zeros(len(df_pred))
 
         for tier_name, tier_lsoas in self.tiers.items():
-            idx = df_pred[df_pred["LSOA code"].isin(tier_lsoas)].index
-            if len(idx) == 0 or tier_name not in self.models["xgb"]:
-                continue
+            mask = df_pred['LSOA code'].isin(tier_lsoas)
+            idx = df_pred[mask].index
+            if len(idx) == 0 or tier_name not in self.models['xgb']: continue
+
             tg = df_pred.loc[idx].copy()
-            xgb_p = self._apply_correction(
-                self.models["xgb"][tier_name].predict(self._xgb_X(tg)),
-                self.bias_factors["xgb"].get(tier_name, 0.0),
-            ).clip(min=0)
-            rf_p = self._apply_correction(
-                self.models["rf"][tier_name].predict(self._rf_X(tg)),
-                self.bias_factors["rf"].get(tier_name, 0.0),
-            ).clip(min=0)
+            X_tg = self._prep_X(tg)
+
+            xgb_p = self._apply_correction(self.models['xgb'][tier_name].predict(X_tg), self.bias_factors['xgb'][tier_name]).clip(min=0)
             xgb_all[idx] = xgb_p
+
+            rf_p = self._apply_correction(self.models['rf'][tier_name].predict(X_tg), self.bias_factors['rf'][tier_name]).clip(min=0)
             rf_all[idx] = rf_p
 
-        df_pred["XGB_Prediction"] = xgb_all
-        df_pred["RF_Prediction"] = rf_all
-        df_pred["Ensemble_7030_Prediction"] = (0.7 * xgb_all + 0.3 * rf_all).clip(min=0)
-        return df_pred[["Month", "LSOA code", "Crime type", "XGB_Prediction", "RF_Prediction", "Ensemble_7030_Prediction"]]
+        df_pred['XGB_Prediction'] = xgb_all
+        df_pred['RF_Prediction'] = rf_all
+        
+        ensemble_raw = (xgb_all * 0.7 + rf_all * 0.3)
+        df_pred['Ensemble_7030_Prediction'] = np.where(ensemble_raw < 0.3, 0, ensemble_raw)
 
-    def predict_horizon(self, forecast_months: int = 12) -> pd.DataFrame:
-        months = [add_months(self.last_data_month, i) for i in range(1, forecast_months + 1)]
-        return pd.concat([self.predict_month(m) for m in months], ignore_index=True)
+        return df_pred[['Month', 'LSOA code', 'Crime type', 
+                        'XGB_Prediction', 'RF_Prediction', 'Ensemble_7030_Prediction']]
 
-    def save_xgb_models(self, output_dir: Path):
-        for tier_name, model in self.models["xgb"].items():
-            model.save_model(output_dir / f"xgb_tier_{tier_name}.json")
-        # Compatibility names from the previous script.
-        if "T2" in self.models["xgb"]:
-            self.models["xgb"]["T2"].save_model(output_dir / "xgb_split_model_top5.json")
-        elif "T1" in self.models["xgb"]:
-            self.models["xgb"]["T1"].save_model(output_dir / "xgb_split_model_top5.json")
-        if "T3" in self.models["xgb"]:
-            self.models["xgb"]["T3"].save_model(output_dir / "xgb_split_model_others.json")
-
-    def _add_time_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        dates = pd.to_datetime(df["Month"])
-        df["Month_Num"] = dates.dt.month
-        df["Time_Index"] = (dates.dt.year - self.base_month_dt.year) * 12 + (dates.dt.month - self.base_month_dt.month)
+    def _add_time_features(self, df):
+        dates = pd.to_datetime(df['Month'])
+        df['Month_Num'] = dates.dt.month
+        df['Time_Index'] = (dates.dt.year - self.base_month_dt.year) * 12 + (dates.dt.month - self.base_month_dt.month)
         return df
 
-    def _xgb_X(self, df: pd.DataFrame) -> pd.DataFrame:
-        X = df[["Time_Index", "Month_Num", "LSOA code", "Crime type"]].copy()
-        X["LSOA code"] = X["LSOA code"].astype(self.lsoa_cat_dtype)
-        X["Crime type"] = X["Crime type"].astype(self.crime_cat_dtype)
+    def _prep_X(self, df):
+        # Universal prep for both XGBoost and XGB-RF
+        X = df[['Time_Index', 'Month_Num', 'LSOA code', 'Crime type']].copy()
+        X['LSOA code'] = X['LSOA code'].astype(self.lsoa_cat_dtype)
+        X['Crime type'] = X['Crime type'].astype(self.crime_cat_dtype)
         return X
 
-    def _rf_X(self, df: pd.DataFrame) -> np.ndarray:
-        return np.hstack([df[["Time_Index", "Month_Num"]].values, self.ohe.transform(df[["LSOA code", "Crime type"]])])
-
-    @staticmethod
-    def _calc_bias(preds_arr, actual_series):
+    def _calc_bias(self, preds_arr, actual_series):
         total = actual_series.sum()
         return float((preds_arr.sum() - total) / total) if total > 0 else 0.0
 
-    @staticmethod
-    def _apply_correction(preds_arr, factor):
+    def _apply_correction(self, preds_arr, factor):
         return preds_arr * (1.0 / (1.0 + factor)) if abs(factor) > 1e-9 else preds_arr
-
 
 def infer_month_from_path(file_path: Path) -> Optional[str]:
     import re
