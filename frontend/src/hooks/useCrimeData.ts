@@ -18,182 +18,256 @@ function toMapRequest(filters: FilterState): MapRequest {
 }
 
 /**
- * Temporary forecast prototype.
- *
- * Because real forecasted data is not available yet, this creates a transparent
- * placeholder forecast from the existing historical map values.
- *
- * Later, replace fetchForecastPrototypeMap() with a real fetchForecast() API call.
+ * Cache the LSOA -> Borough lookup so we do not fetch boundaries repeatedly.
+ * This is useful because forecast_dashboard_long.json has LSOA code but may not include Borough.
  */
-async function fetchForecastPrototypeMap(request: MapRequest, filters: FilterState) {
-  const historicalMap = await fetchMap(request)
+let lsoaBoroughLookupPromise: Promise<Record<string, string>> | null = null
 
-  return applyPrototypeForecast(historicalMap, {
-    horizon: filters.forecastHorizon,
-    model: filters.forecastModel,
-  })
-}
-
-type PrototypeForecastOptions = {
-  horizon: number
-  model: string
-}
-
-function applyPrototypeForecast(map: any, options: PrototypeForecastOptions) {
-  if (!map) return map
-
-  const factor = getPrototypeForecastFactor(options)
-
-  const nextMap = {
-    ...map,
-    isForecast: true,
-    isPrototypeForecast: true,
-    forecastHorizon: options.horizon,
-    forecastModel: options.model,
-    forecastNote:
-      'Prototype forecast only: values are estimated from historical demand until real model output is connected.',
+async function getLsoaBoroughLookup() {
+  if (!lsoaBoroughLookupPromise) {
+    lsoaBoroughLookupPromise = buildLsoaBoroughLookup()
   }
 
-  const collectedValues: number[] = []
+  return lsoaBoroughLookupPromise
+}
 
-  /**
-   * Most likely structure:
-   * {
-   *   values: {
-   *     "E01000001": 123,
-   *     "E01000002": 98
-   *   },
-   *   vmin: 0,
-   *   vmax: 123
-   * }
-   */
-  if (map.values && typeof map.values === 'object' && !Array.isArray(map.values)) {
-    const forecastValues: Record<string, number> = {}
+async function buildLsoaBoroughLookup(): Promise<Record<string, string>> {
+  try {
+    const boundaryData: any = await fetchBoundaries('lsoa' as any)
+    const features = Array.isArray(boundaryData?.features) ? boundaryData.features : []
 
-    for (const [unitId, value] of Object.entries(map.values)) {
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        const predicted = makePrototypePrediction(value, factor, unitId)
-        forecastValues[unitId] = predicted
-        collectedValues.push(predicted)
+    const lookup: Record<string, string> = {}
+
+    for (const feature of features) {
+      const properties = feature?.properties ?? {}
+
+      const lsoaCode = pickProperty(properties, [
+        'lsoa_code',
+        'LSOA code',
+        'LSOA Code',
+        'LSOA11CD',
+        'LSOA21CD',
+        'code',
+        'id',
+      ])
+
+      const borough = pickProperty(properties, [
+        'borough',
+        'Borough',
+        'borough_name',
+        'Borough name',
+        'lad_name',
+        'LAD name',
+        'LAD22NM',
+        'local_authority',
+      ])
+
+      if (lsoaCode && borough) {
+        lookup[normaliseLookupKey(lsoaCode)] = String(borough)
       }
     }
 
-    nextMap.values = forecastValues
-  }
+    console.log('LSOA → Borough lookup size:', Object.keys(lookup).length)
 
-  /**
-   * Alternative possible structure:
-   * {
-   *   rows: [
-   *     { unit_id: "...", value: 123 },
-   *     ...
-   *   ]
-   * }
-   */
-  if (Array.isArray(map.rows)) {
-    nextMap.rows = map.rows.map((row: any) => scaleForecastRow(row, factor, collectedValues))
+    return lookup
+  } catch (error) {
+    console.warn('Could not build LSOA to borough lookup:', error)
+    return {}
   }
-
-  /**
-   * Alternative possible structure:
-   * {
-   *   data: [
-   *     { unit_id: "...", value: 123 },
-   *     ...
-   *   ]
-   * }
-   */
-  if (Array.isArray(map.data)) {
-    nextMap.data = map.data.map((row: any) => scaleForecastRow(row, factor, collectedValues))
-  }
-
-  if (collectedValues.length > 0) {
-    nextMap.vmin = Math.min(...collectedValues)
-    nextMap.vmax = Math.max(...collectedValues)
-  }
-
-  return nextMap
 }
 
-function getPrototypeForecastFactor(options: PrototypeForecastOptions) {
-  const horizon = Math.max(1, options.horizon || 1)
-
-  /**
-   * These are not real model parameters.
-   * They only create a visible prototype effect for the dashboard.
-   */
-  if (options.model === 'baseline') {
-    return 1 + horizon * 0.015
-  }
-
-  if (options.model === 'xgboost') {
-    return 1 + horizon * 0.025
-  }
-
-  return 1 + horizon * 0.02
-}
-
-function makePrototypePrediction(value: number, factor: number, unitId?: string) {
-  /**
-   * Add a tiny deterministic variation by unit so the forecast does not look like
-   * a flat multiplication everywhere. This is still only a prototype.
-   */
-  const variation = unitId ? getStableVariation(unitId) : 1
-  const predicted = value * factor * variation
-
-  return Number(predicted.toFixed(2))
-}
-
-function getStableVariation(input: string) {
-  let hash = 0
-
-  for (let index = 0; index < input.length; index += 1) {
-    hash = (hash * 31 + input.charCodeAt(index)) >>> 0
-  }
-
-  /**
-   * Range: roughly 0.95 to 1.05
-   */
-  return 0.95 + (hash % 100) / 1000
-}
-
-function scaleForecastRow(row: any, factor: number, collectedValues: number[]) {
-  const unitId =
-    row.unit_id ??
-    row.unitId ??
-    row.id ??
-    row.lsoa_code ??
-    row.ward_code ??
-    row.borough ??
-    undefined
-
-  const nextRow = { ...row }
-
-  const possibleValueFields = [
-    'value',
-    'metric',
-    'demand',
-    'prediction',
-    'predicted',
-    'raw',
-    'count',
-    'total_crimes',
-  ]
-
-  for (const field of possibleValueFields) {
-    const value = row[field]
-
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      const predicted = makePrototypePrediction(value, factor, String(unitId ?? field))
-      nextRow[field] = predicted
-      collectedValues.push(predicted)
+function pickProperty(properties: Record<string, any>, possibleNames: string[]) {
+  for (const name of possibleNames) {
+    if (properties[name] !== undefined && properties[name] !== null) {
+      return properties[name]
     }
   }
 
-  nextRow.isForecast = true
-  nextRow.isPrototypeForecast = true
+  const normalisedNames = possibleNames.map(normaliseColumnName)
 
-  return nextRow
+  for (const [key, value] of Object.entries(properties)) {
+    if (normalisedNames.includes(normaliseColumnName(key))) {
+      return value
+    }
+  }
+
+  return null
+}
+
+async function fetchForecastMap(filters: FilterState) {
+  const response = await fetch('/forecast_dashboard_long.json')
+
+  if (!response.ok) {
+    throw new Error('Could not load forecast_dashboard_long.json')
+  }
+
+  const data = await response.json()
+  const lsoaBoroughLookup = await getLsoaBoroughLookup()
+
+  const rawRows = Array.isArray(data)
+    ? data
+    : Array.isArray(data.rows)
+      ? data.rows
+      : Array.isArray(data.data)
+        ? data.data
+        : []
+
+  const rows = rawRows
+    .map((row: any) => {
+      const monthString = String(row.Month ?? row.month ?? row.period ?? '')
+      const year = Number(monthString.slice(0, 4))
+      const monthNum = Number(monthString.slice(5, 7))
+
+      const lsoaCode =
+        row['LSOA code'] ??
+        row['LSOA Code'] ??
+        row.lsoa_code ??
+        row.lsoaCode ??
+        row.area_code ??
+        row.unit_id ??
+        null
+
+      const crimeType =
+        row['Crime type'] ??
+        row['Crime Type'] ??
+        row.crime_type ??
+        row.category ??
+        row.major_category ??
+        null
+
+      const borough =
+        row.Borough ??
+        row.borough ??
+        row['Borough name'] ??
+        row.borough_name ??
+        lsoaBoroughLookup[normaliseLookupKey(lsoaCode)] ??
+        null
+
+      const value =
+        row.predicted_crimes ??
+        row.prediction ??
+        row.predicted ??
+        row.forecast ??
+        row.forecast_crimes ??
+        row.y_pred ??
+        row.value ??
+        row.demand ??
+        row.crimes ??
+        row.total_crimes ??
+        0
+
+      return {
+        ...row,
+        month: monthString,
+        year,
+        month_num: monthNum,
+        lsoa_code: lsoaCode,
+        crime_type: crimeType,
+        borough,
+        value: Number(value),
+      }
+    })
+    .filter((row: any) => {
+      return row.month && row.lsoa_code && Number.isFinite(row.value)
+    })
+
+  const availableMonths = Array.from(new Set(rows.map((row: any) => String(row.month)))).sort()
+
+  const horizon = Math.max(1, Number(filters.forecastHorizon ?? 12))
+  const horizonMonths = availableMonths.slice(0, horizon)
+
+  const hasBoroughInfo = rows.some((row: any) => row.borough)
+
+  const filteredRows = rows.filter((row: any) => {
+    const matchesHorizon = horizonMonths.includes(row.month)
+
+    const matchesBorough =
+      !filters.borough ||
+      filters.borough === 'All boroughs' ||
+      !hasBoroughInfo ||
+      row.borough === filters.borough
+
+    const matchesCategory =
+      !filters.categories ||
+      filters.categories.length === 0 ||
+      filters.categories.some((category) => {
+        return normaliseCategory(category) === normaliseCategory(row.crime_type)
+      })
+
+    return matchesHorizon && matchesBorough && matchesCategory
+  })
+
+  const values: Record<string, number> = {}
+
+  for (const row of filteredRows) {
+    const key =
+      filters.level === 'borough'
+        ? row.borough
+        : filters.level === 'ward'
+          ? row.ward_code ?? row.ward ?? row.lsoa_code
+          : row.lsoa_code
+
+    if (!key) continue
+
+    values[key] = (values[key] ?? 0) + row.value
+  }
+
+  const numericValues = Object.values(values)
+  const totalPredicted = numericValues.reduce((sum, value) => sum + value, 0)
+
+  console.log('========== FORECAST DEBUG ==========')
+  console.log('Selected forecast horizon:', horizon)
+  console.log('Available forecast months:', availableMonths)
+  console.log('Months used for this horizon:', horizonMonths)
+  console.log('Raw forecast rows:', rawRows.length)
+  console.log('Cleaned forecast rows:', rows.length)
+  console.log('Filtered forecast rows:', filteredRows.length)
+  console.log('Map level:', filters.level)
+  console.log('Selected borough:', filters.borough)
+  console.log('Selected categories:', filters.categories)
+  console.log('Number of map units:', numericValues.length)
+  console.log('Total predicted demand:', totalPredicted)
+  console.log('Min value:', numericValues.length > 0 ? Math.min(...numericValues) : 0)
+  console.log('Max value:', numericValues.length > 0 ? Math.max(...numericValues) : 1)
+  console.log('First cleaned forecast row:', rows[0])
+  console.log('First filtered forecast row:', filteredRows[0])
+  console.log('====================================')
+
+  return {
+    values,
+    rows: filteredRows,
+    vmin: numericValues.length > 0 ? Math.min(...numericValues) : 0,
+    vmax: numericValues.length > 0 ? Math.max(...numericValues) : 1,
+    total: totalPredicted,
+    isForecast: true,
+    isPrototypeForecast: false,
+    forecastHorizon: horizon,
+    forecastModel: 'xgboost',
+    forecastMonths: horizonMonths,
+    forecastNote: 'Forecast based on the generated model output from forecast_dashboard_long.json.',
+  }
+}
+
+function normaliseCategory(value: unknown) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normaliseColumnName(value: unknown) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normaliseLookupKey(value: unknown) {
+  return String(value ?? '')
+    .toUpperCase()
+    .trim()
 }
 
 /** Boundaries cached forever per level + map values for the active filters. */
@@ -207,10 +281,16 @@ export function useCrimeData(filters: FilterState) {
   const request = toMapRequest(filters)
 
   const map = useQuery({
-    queryKey: ['map', filters.mode, request, filters.forecastHorizon, filters.forecastModel, filters.city],
+    queryKey: [
+      'map',
+      filters.mode,
+      request,
+      filters.forecastHorizon,
+      filters.city,
+    ],
     queryFn: () => {
       if (filters.mode === 'forecast') {
-        return fetchForecastPrototypeMap(request, filters)
+        return fetchForecastMap(filters)
       }
 
       return fetchMap(request)
@@ -230,12 +310,14 @@ export function useCrimeData(filters: FilterState) {
       filters.mode,
       boroughRequest,
       filters.forecastHorizon,
-      filters.forecastModel,
       filters.city,
     ],
     queryFn: () => {
       if (filters.mode === 'forecast') {
-        return fetchForecastPrototypeMap(boroughRequest, filters)
+        return fetchForecastMap({
+          ...filters,
+          level: 'borough',
+        })
       }
 
       return fetchMap(boroughRequest)
