@@ -219,8 +219,6 @@ def get_forecast_long(city: str) -> pd.DataFrame:
     combined["severity_weight_mean"] = combined["severity_weight_mean"].fillna(0.0)
     combined["severity_weight_median"] = combined["severity_weight_median"].fillna(0.0)
 
-    combined = add_composite_columns(combined)
-
     return combined
 
 

@@ -12,8 +12,10 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 
 import numpy as np
+import pandas as pd
 from allocation import (
     _DAILY_HOURLY_WEIGHTS,
+    ANTI_OVER_POLICING_WEIGHTS,
     AllocationInfeasibleError,
     AveragingModel,
     LPModel,
@@ -24,7 +26,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core import geometry
-from core.composite import compute_map_values
+from core.composite import add_composite_columns, compute_map_values
 from core.data import (
     BOROUGH_ALL,
     ID_COLUMN_BY_LEVEL,
@@ -213,6 +215,13 @@ for _cat, (_hw, _dw) in _DAILY_HOURLY_WEIGHTS.items():
 _DEFAULT_TEMPLATE = _CAT_TEMPLATES.get("Other crime", np.ones((7, 24)) / (7 * 24))
 
 
+def _apply_anti_over_policing_weights(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    factors = out["category"].map(ANTI_OVER_POLICING_WEIGHTS).fillna(1.0)
+    out["crime_count"] = out["crime_count"] * factors.to_numpy()
+    return add_composite_columns(out)
+
+
 def _lsoa_weekly_schedule(crime_shares: dict, units: int, active: float = 0.33) -> list[list[int]]:
     total = sum(crime_shares.values())
     if total <= 0:
@@ -238,7 +247,7 @@ def _allocation_payload(
     equity_floor: float,
     min_units_per_lsoa: int,
 ) -> AllocationResponse:
-    df = get_forecast_long(city)
+    df = _apply_anti_over_policing_weights(get_forecast_long(city))
     resp = AllocationResponse(
         city=city,
         total_units=total_units,
