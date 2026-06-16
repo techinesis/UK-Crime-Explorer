@@ -3,6 +3,7 @@ import type { Level, Metric, SeverityBasis } from '../lib/types'
 
 export type ForecastMode = 'historical' | 'forecast'
 export type ForecastModel = 'xgboost' | 'baseline'
+export type AllocationModel = typeof ALLOCATION_MODELS[number]['value']
 
 export interface FilterState {
   categories: string[] // empty = all
@@ -19,12 +20,39 @@ export interface FilterState {
   mode: ForecastMode
   forecastHorizon: number
   forecastModel: ForecastModel
+
+  // Allocation stuff
+  allocationModel: AllocationModel
+  totalUnits: number
+
+  // LP Parameters
+  allocAlpha: number // weight for severity score
+  allocBeta: number // weight for crime volume
+  allocMaxCapFactor: number
+  allocEquityFloor: number
+
+  // LP and Rawls Parameters
+  allocMinUnitsPerLsoa: number
 }
 
 export const TIER_ALL = 'All tiers'
 export const YEAR_ALL = 'All years'
 export const BOROUGH_ALL = 'All boroughs'
 export const CITIES = ['London', 'Birmingham', 'Manchester', 'Liverpool']
+export const ALLOCATION_MODELS = [
+  { value: 'lp', label: 'LP Optimisation' },
+  { value: 'rawls', label: 'Rawls LP Optimisation' },
+  { value: 'baseline', label: 'Proportional baseline' },
+]
+
+export const DEFAULT_ALLOCATION_PARAMS = {
+  allocAlpha: 0.6,
+  allocBeta: 0.25,
+  allocMaxCapFactor: 2.0,
+  allocEquityFloor: 0.7,
+
+  allocMinUnitsPerLsoa: 6,
+} satisfies Partial<FilterState>
 
 export const DEFAULT_FILTERS: FilterState = {
   categories: [],
@@ -41,6 +69,10 @@ export const DEFAULT_FILTERS: FilterState = {
   mode: 'historical',
   forecastHorizon: 1,
   forecastModel: 'xgboost',
+
+  allocationModel: ALLOCATION_MODELS[0].value,
+  totalUnits: 33_000,
+  ...DEFAULT_ALLOCATION_PARAMS
 }
 
 export const METRIC_OPTIONS: Array<{ value: Metric; label: string }> = [
@@ -100,7 +132,14 @@ export function useFilters(initial: FilterState = DEFAULT_FILTERS) {
   const [filters, setFilters] = useState<FilterState>(initial)
 
   const update = useCallback((patch: Partial<FilterState>) => {
-    setFilters((prev) => ({ ...prev, ...patch }))
+    setFilters((prev) => {
+      const isForecast = patch.mode ? patch.mode === "forecast" : prev.mode === "forecast"
+      if (isForecast) {
+        // XXX: forecasting currently forces London, if functionality changes this should be undone
+        patch.city = "london"
+      }
+      return ({ ...prev, ...patch })
+    })
   }, [])
 
   return { filters, update, setFilters }

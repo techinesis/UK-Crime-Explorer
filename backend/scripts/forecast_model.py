@@ -5,14 +5,14 @@ Drop-in version using the teammate's model, but exporting the SAME dashboard fil
 as the previous forecasting script.
 
 Outputs:
-- outputs/forecast_dashboard_long.csv
-- outputs/forecast_dashboard_long.json
-- outputs/dashboard_crime_predictions.csv
-- outputs/test_predictions_dashboard.csv
-- outputs/model_evaluation_70_30.csv
-- outputs/model_metadata.json
-- outputs/xgb_tier_T1.json, xgb_tier_T2.json, xgb_tier_T3.json
-- outputs/rf_tier_T1.json, rf_tier_T2.json, rf_tier_T3.json
+- <output-dir>/forecast_dashboard_long.csv
+- <output-dir>/forecast_dashboard_long.json
+- <output-dir>/dashboard_crime_predictions.csv
+- <output-dir>/test_predictions_dashboard.csv
+- <output-dir>/model_evaluation_70_30.csv
+- <output-dir>/model_metadata.json
+- <output-dir>/xgb_tier_T1.json, xgb_tier_T2.json, xgb_tier_T3.json
+- <output-dir>/rf_tier_T1.json, rf_tier_T2.json, rf_tier_T3.json
 
 Run:
 python forecast_model.py --data-dir .cache/crime-data/london --output-dir frontend/public --forecast-months 12
@@ -350,9 +350,6 @@ def evaluate_70_30(raw_df: pd.DataFrame):
 
     test_dashboard = dashboard_format(merged, "test_prediction")
     mae = mean_absolute_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"])
-    
-    # Safe RMSE calculation that won't break on older scikit-learn versions
-    rmse = np.sqrt(mean_squared_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"]))
     rmse = np.sqrt(mean_squared_error(test_dashboard["actual_crimes"], test_dashboard["predicted_crimes"]))
 
     evaluation = pd.DataFrame([

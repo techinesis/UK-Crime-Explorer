@@ -49,3 +49,19 @@ class MapResponse(BaseModel):
     crime_counts: dict[str, float]
     vmin: float
     vmax: float
+
+
+class AllocationEntry(BaseModel):
+    lsoa_code: str
+    lsoa_name: str
+    borough: str
+    units: float
+    schedule: list[list[int]] # [day][hour]
+
+
+class AllocationResponse(BaseModel):
+    city: str
+    total_units: int
+    model: str
+    warning: str | None = None
+    entries: list[AllocationEntry]

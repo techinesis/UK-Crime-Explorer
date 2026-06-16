@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import type { MetaResponse } from '../lib/types'
 import {
   BOROUGH_ALL,
@@ -11,6 +11,8 @@ import {
   YEAR_ALL,
   CITIES,
   type FilterState,
+  ALLOCATION_MODELS,
+  DEFAULT_ALLOCATION_PARAMS,
 } from '../hooks/useFilters'
 
 const CONFIDENCE_EMOJI: Record<string, string> = {
@@ -42,10 +44,42 @@ function SectionTitle({ children }: { children: ReactNode }) {
   )
 }
 
+interface AllocParams {
+  alpha: number
+  beta: number
+  maxCapFactor: number
+  equityFloor: number
+  minUnitsPerLsoa: number
+}
+
 export default function Sidebar({ meta, filters, update }: SidebarProps) {
   const confidenceByCategory = new Map(
     (meta?.categories ?? []).map((c) => [c.name, c.preventability_confidence]),
   )
+  const [inputUnits, setInputUnits] = useState('33000')
+
+  const [allocParams, setAllocParams] = useState<AllocParams>({
+    alpha: filters.allocAlpha,
+    beta: filters.allocBeta,
+    maxCapFactor: filters.allocMaxCapFactor,
+    equityFloor: filters.allocEquityFloor,
+    minUnitsPerLsoa: filters.allocMinUnitsPerLsoa,
+  })
+
+  useEffect(() => {
+    setAllocParams({
+      alpha: filters.allocAlpha,
+      beta: filters.allocBeta,
+      maxCapFactor: filters.allocMaxCapFactor,
+      equityFloor: filters.allocEquityFloor,
+      minUnitsPerLsoa: filters.allocMinUnitsPerLsoa,
+    })
+  }, [
+    filters.allocAlpha, filters.allocBeta, filters.allocMaxCapFactor,
+    filters.allocEquityFloor, filters.allocMinUnitsPerLsoa,
+  ])
+
+  const gamma = Math.max(0, Math.round((1 - allocParams.alpha - allocParams.beta) * 100) / 100)
 
   const toggleCategory = (name: string) => {
     const set = new Set(filters.categories)
@@ -69,6 +103,11 @@ export default function Sidebar({ meta, filters, update }: SidebarProps) {
     }
 
     update({ months: [...set].sort((a, b) => a - b) })
+  }
+
+  function commitUnits() {
+    const v = parseInt(inputUnits, 10)
+    if (Number.isFinite(v) && v > 0) update({ totalUnits: v })
   }
 
   const isForecast = filters.mode === 'forecast'
@@ -134,6 +173,161 @@ export default function Sidebar({ meta, filters, update }: SidebarProps) {
                 ))}
               </select>
             </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Allocation model
+              </label>
+
+              <select
+                className={selectClass}
+                value={filters.allocationModel}
+                onChange={(e) =>
+                  update({ allocationModel: e.target.value as FilterState['allocationModel'] })
+                }
+              >
+                {ALLOCATION_MODELS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted">
+                Units
+              </label>
+
+              <input
+                type="number"
+                className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
+                min={100}
+                max={50000}
+                step={100}
+                value={inputUnits}
+                onChange={(e) => setInputUnits(e.target.value)}
+                onBlur={commitUnits}
+                onKeyDown={(e) => e.key === 'Enter' && commitUnits()}
+                >
+              </input>
+            </div>
+
+            {/* Model params */}
+            {filters.allocationModel !== 'baseline' && (
+              <div className="space-y-3 rounded-md border border-border bg-surface p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  Model parameters
+                </p>
+
+                {/* LP and Rawls */}
+                <div>
+                  <div className="mb-1 flex justify-between text-[11px]">
+                    <span className="text-muted">Min units / LSOA</span>
+                    <span className="tabular-nums text-fg">{allocParams.minUnitsPerLsoa}</span>
+                  </div>
+                  <input
+                    type="range" min={1} max={20} step={1}
+                    value={allocParams.minUnitsPerLsoa}
+                    onChange={e => setAllocParams(p => ({ ...p, minUnitsPerLsoa: Number(e.target.value) }))}
+                    onPointerUp={e => update({ allocMinUnitsPerLsoa: Number((e.target as HTMLInputElement).value) })}
+                    className="w-full accent-accent"
+                  />
+                </div>
+
+                {filters.allocationModel === 'lp' && (
+                  <>
+                    <div>
+                      <div className="mb-1 flex justify-between text-[11px]">
+                        <span className="text-muted">&alpha; severity weight</span>
+                        <span className="tabular-nums text-fg">{allocParams.alpha.toFixed(2)}</span>
+                      </div>
+                      <input
+                        type="range" min={0} max={1} step={0.05}
+                        value={allocParams.alpha}
+                        onChange={e => {
+                          const a = Number(e.target.value)
+                          setAllocParams(p => ({
+                            ...p,
+                            alpha: a,
+                            beta: Math.min(p.beta, parseFloat((1 - a).toFixed(2))),
+                          }))
+                        }}
+                        onPointerUp={e => {
+                          const a = Number((e.target as HTMLInputElement).value)
+                          const b = Math.min(filters.allocBeta, parseFloat((1 - a).toFixed(2)))
+                          update({ allocAlpha: a, allocBeta: b })
+                        }}
+                        className="w-full accent-accent"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-1 flex justify-between text-[11px]">
+                        <span className="text-muted">&beta; volume weight</span>
+                        <span className="tabular-nums text-fg">{allocParams.beta.toFixed(2)}</span>
+                      </div>
+                      <input
+                        type="range" min={0} max={parseFloat((1 - allocParams.alpha).toFixed(2))} step={0.05}
+                        value={allocParams.beta}
+                        onChange={e => setAllocParams(p => ({ ...p, beta: Number(e.target.value) }))}
+                        onPointerUp={e => update({ allocBeta: Number((e.target as HTMLInputElement).value) })}
+                        className="w-full accent-accent"
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-muted">&gamma; diversity (computed)</span>
+                      <span className="tabular-nums text-fg">{gamma.toFixed(2)}</span>
+                    </div>
+
+                    <div>
+                      <div className="mb-1 flex justify-between text-[11px]">
+                        <span className="text-muted">Max cap factor</span>
+                        <span className="tabular-nums text-fg">{allocParams.maxCapFactor.toFixed(1)}×</span>
+                      </div>
+                      <input
+                        type="range" min={1} max={5} step={0.1}
+                        value={allocParams.maxCapFactor}
+                        onChange={e => setAllocParams(p => ({ ...p, maxCapFactor: Number(e.target.value) }))}
+                        onPointerUp={e => update({ allocMaxCapFactor: Number((e.target as HTMLInputElement).value) })}
+                        className="w-full accent-accent"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="mb-1 flex justify-between text-[11px]">
+                        <span className="text-muted">Equity floor</span>
+                        <span className="tabular-nums text-fg">{(allocParams.equityFloor * 100).toFixed(0)}%</span>
+                      </div>
+                      <input
+                        type="range" min={0} max={1} step={0.05}
+                        value={allocParams.equityFloor}
+                        onChange={e => setAllocParams(p => ({ ...p, equityFloor: Number(e.target.value) }))}
+                        onPointerUp={e => update({ allocEquityFloor: Number((e.target as HTMLInputElement).value) })}
+                        className="w-full accent-accent"
+                      />
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        onClick={() => {
+                          setAllocParams({
+                            alpha: DEFAULT_ALLOCATION_PARAMS.allocAlpha,
+                            beta: DEFAULT_ALLOCATION_PARAMS.allocBeta,
+                            maxCapFactor: DEFAULT_ALLOCATION_PARAMS.allocMaxCapFactor,
+                            equityFloor: DEFAULT_ALLOCATION_PARAMS.allocEquityFloor,
+                            minUnitsPerLsoa: DEFAULT_ALLOCATION_PARAMS.allocMinUnitsPerLsoa,
+                          })
+                        }}
+                        className='rounded-md border px-3 py-1.5 text-sm border-border bg-card text-fg hover:border-accent'
+                      >
+                        Restore Defaults
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             <p className="rounded-md bg-surface p-2 text-[11px] text-muted">
               In forecast mode, the map should use predicted future values instead of historical

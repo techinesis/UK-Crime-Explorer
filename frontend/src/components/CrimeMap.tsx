@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DeckGL from '@deck.gl/react'
 import { GeoJsonLayer } from '@deck.gl/layers'
 import { Map } from 'react-map-gl/maplibre'
 import type { Feature, Geometry } from 'geojson'
 import { rgbaForValue, type RGBA } from '../lib/colors'
-import type { BoundaryCollection, BoundaryProps, Level, MapResponse, MetaResponse } from '../lib/types'
+import type { AllocationResponse, BoundaryCollection, BoundaryProps, Level, MapResponse, MetaResponse } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
 import { CITIES } from '../hooks/useFilters'
+import { DAYS, lerpRgb, formatHour, CELL_LOW, CELL_HIGH } from '../pages/AllocationPage'
+import type { PickingInfo } from '@deck.gl/core'
 
 const BASEMAP: Record<Theme, string> = {
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
@@ -40,6 +42,8 @@ const ID_PROP: Record<Level, string> = {
   borough: 'borough',
 }
 
+const N_HOURS = 24
+
 interface ViewState {
   longitude: number
   latitude: number
@@ -49,6 +53,15 @@ interface ViewState {
 }
 
 type BoundaryFeature = Feature<Geometry, BoundaryProps>
+
+interface PopupState {
+  lsoa: string
+  name: string
+  borough: string
+  schedule: number[][] // [day][hour]
+  x: number
+  y: number
+}
 
 function eachCoord(geometry: Geometry | null, cb: (lng: number, lat: number) => void): void {
   if (!geometry) return
@@ -87,14 +100,224 @@ function boroughView(features: BoundaryFeature[], borough: string, city: string)
   }
 }
 
+interface SchedulePopupProps {
+  popup: PopupState
+  theme: Theme
+  onClose: () => void
+}
+
+function SchedulePopup({ popup, theme, onClose }: SchedulePopupProps) {
+  const popupRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: popup.x + 14, top: popup.y - 24 })
+
+  useEffect(() => {
+    const el = popupRef.current
+    if (!el) return
+    const parent = el.offsetParent as HTMLElement | null
+    if (!parent) return
+    const pw = parent.clientWidth, ph = parent.clientHeight
+    const ew = el.offsetWidth, eh = el.offsetHeight
+
+    let left = popup.x + 14, top = popup.y - 24
+    if (left + ew > pw - 8) left = popup.x - ew - 14
+    if (top + eh > ph - 8) top = ph - eh - 8
+    if (top < 8) top = 8
+    if (left < 8) left = 8
+    setPos({ left, top })
+  }, [popup.x, popup.y])
+
+  const schedule = popup.schedule
+  const allValues = schedule.flat()
+  const maxVal = Math.max(...allValues, 1)
+  const totalUnits = allValues.reduce((a, b) => a + b, 0)
+
+  const dayTotals = schedule.map(row => row.reduce((a, b) => a + b, 0))
+  const peakDay = DAYS[dayTotals.indexOf(Math.max(...dayTotals))]
+  const hourTotals = Array.from({ length: N_HOURS }, (_, h) => schedule.reduce((s, row) => s + (row[h] ?? 0), 0))
+  const peakHour = formatHour(hourTotals.indexOf(Math.max(...hourTotals)))
+
+  const cellBg = (val: number) => lerpRgb(CELL_LOW[theme], CELL_HIGH[theme], val / maxVal)
+
+  const isLight = theme === 'light'
+  const surface = isLight ? 'rgba(255,255,255,0.97)' : 'rgba(15,23,42,0.97)'
+  const border = isLight ? 'rgba(148,163,184,0.35)' : 'rgba(255,255,255,0.08)'
+  const text = isLight ? '#0f172a' : '#f1f5f9'
+  const muted = '#64748b'
+  const hairline = isLight ? '#e2e8f0' : '#1e293b'
+
+  const rowBg = (d: number): string => {
+    if (d < 5) return 'transparent'
+    return isLight ? 'rgba(248,250,252,0.9)' : 'rgba(30,41,59,0.6)'
+  }
+
+  /* NOTE: LLM used to help with styling these elements */
+  return (
+    <div
+      ref={popupRef}
+      style={{
+        position: 'absolute',
+        left: pos.left,
+        top: pos.top,
+        background: surface,
+        color: text,
+        borderRadius: 14,
+        boxShadow: isLight ? '0 8px 32px rgba(0,0,0,0.18), 0 1px 4px rgba(0,0,0,0.08)'
+                           : '0 8px 32px rgba(0,0,0,0.6), 0 1px 4px rgba(0,0,0,0.3)',
+        border: `1px solid ${border}`,
+        padding: '14px 16px 12px',
+        width: 492,
+        fontSize: 12,
+        userSelect: 'none',
+        backdropFilter: 'blur(12px)',
+      }}
+    >
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: 10,
+      }}>
+        {/* Title */}
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: '-0.01em' }}>{popup.name}</div>
+          <div style={{ color: muted, marginTop: 2, fontSize: 11 }}>
+            {popup.borough}&ensp;&middot;&ensp;<span style={{ fontVariantNumeric: 'tabular-nums' }}>{popup.lsoa}</span>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 22,
+            height: 22,
+            marginTop: -2,
+            marginLeft: 8,
+            borderRadius: '50%',
+            cursor: 'pointer',
+            background: isLight ? '#f1f5f9' : '#1e293b',
+            border: 'none',
+            color: muted,
+            fontSize: 15,
+            lineHeight: 1,
+          }}
+        >
+          &times;
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div style={{
+        display: 'flex',
+        gap: 0,
+        marginBottom: 12,
+        paddingBottom: 11,
+        borderBottom: `1px solid ${hairline}`,
+      }}>
+        {[
+          { label: 'Weekly units', value: Math.round(totalUnits).toLocaleString() },
+          { label: 'Busiest day', value: peakDay },
+          { label: 'Busiest hour', value: peakHour },
+        ].map((s, i, arr) => (
+          <div key={s.label} style={{
+            flex: 1,
+            paddingLeft: i > 0 ? 12 : 0,
+            paddingRight: i < arr.length - 1 ? 12 : 0,
+            borderRight: i < arr.length - 1 ? `1px solid ${hairline}` : 'none',
+          }}>
+            <div style={{ color: muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+              {s.label}
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>
+              {s.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Heatmap */}
+      <div>
+        <div style={{ display: 'flex', marginLeft: 30, marginBottom: 3 }}>
+          {Array.from({ length: N_HOURS }, (_, h) => (
+            <div key={h} style={{
+              width: 18, flexShrink: 0, textAlign: 'center',
+              color: muted, fontSize: 9, fontVariantNumeric: 'tabular-nums',
+              opacity: h % 6 == 0 ? 1 : 0, pointerEvents: 'none',
+            }}>
+              {formatHour(h)}
+            </div>
+          ))}
+        </div>
+
+        {schedule.slice(0, 7).map((row, d) => (
+          <div
+            key={d}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: d === 4 ? 3 : 1.5,
+              paddingLeft: 2,
+              paddingRight: 2,
+              paddingTop: 1,
+              paddingBottom: 1,
+              borderRadius: 4,
+              background: rowBg(d),
+            }}
+          >
+            <div style={{
+              width: 26,
+              flexShrink: 0,
+              color: d >= 5 ? (isLight ? '#3b82f6' : '#f59e0b') : muted,
+              fontSize: 10,
+              fontWeight: d >= 5 ? 600 : 400,
+              textAlign: 'right',
+              paddingRight: 5,
+              letterSpacing: '0.02em',
+            }}>
+              {DAYS[d]}
+            </div>
+
+          {Array.from({ length: N_HOURS }, (_, h) => {
+            const val = row[h] ?? 0
+            return (
+              <div
+                key={h}
+                title={`${DAYS[d]} ${formatHour(h)}-${formatHour(h + 1 < 24 ? h + 1 : 0)}: ${val} units`}
+                style={{
+                  width: 16,
+                  height: 14,
+                  flexShrink: 0,
+                  margin: '0 1px',
+                  borderRadius: 3,
+                  backgroundColor: cellBg(val),
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'default',
+                  transition: 'transform 80ms',
+                }}
+              />
+            )
+          })}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 interface CrimeMapProps {
   boundaries?: BoundaryCollection
   map?: MapResponse
   level: Level
   borough: string
+  isForecast: boolean
   metricLabel: string
   theme: Theme
   meta?: MetaResponse
+  allocation?: AllocationResponse
 }
 
 export default function CrimeMap({
@@ -102,13 +325,17 @@ export default function CrimeMap({
   map,
   level,
   borough,
+  isForecast,
   metricLabel,
   theme,
   meta,
+  allocation,
 }: CrimeMapProps) {
   const city = meta?.city ?? CITIES[0]
 
   const [viewState, setViewState] = useState<ViewState>(CITY_VIEWS[CITIES[0].toLowerCase()])
+  const [popup, setPopup] = useState<PopupState | null>(null)
+
   const idProp = ID_PROP[level]
   const values = map?.values ?? {}
   const counts = map?.crime_counts ?? {}
@@ -158,43 +385,89 @@ export default function CrimeMap({
     ]
   }, [filteredBoundaries, values, vmin, vmax, idProp, level, theme, city])
 
+  const scheduleByLsoa = useMemo(() => {
+    const m: Record<string, number[][]> = {}
+    for (const e of allocation?.entries ?? []) m[e.lsoa_code] = e.schedule
+    return m
+  }, [allocation])
+
+  const displaySchedule = useCallback((info: PickingInfo) => {
+    if (!info.object || level !== 'lsoa' || !isForecast) {
+      setPopup(null)
+      return
+    }
+
+    const feature = info.object as BoundaryFeature
+    const props = feature.properties
+    const lsoa = String(props.lsoa_code)
+    const schedule = scheduleByLsoa[lsoa]
+
+    if (!schedule) {
+      setPopup(null)
+      return
+    }
+
+    setPopup({
+      lsoa,
+      name: String(props.lsoa_name ?? lsoa),
+      borough: String(props.borough ?? ''),
+      schedule,
+      x: info.x,
+      y: info.y,
+    })
+  }, [scheduleByLsoa, level, isForecast])
+
   return (
-    <DeckGL
-      viewState={viewState}
-      controller={{ dragRotate: false }}
-      onViewStateChange={({ viewState: vs }) => setViewState(vs as unknown as ViewState)}
-      layers={layers}
-      getTooltip={({ object }: { object?: BoundaryFeature }) => {
-        if (!object) return null
-        const props = object.properties
-        const id = String(props[idProp])
-        const value = values[id]
-        const count = counts[id] ?? 0
-        const rows: string[] = []
-        if (level === 'lsoa') rows.push(`<b>LSOA:</b> ${props.lsoa_name ?? id}`)
-        if (level === 'ward') rows.push(`<b>Ward:</b> ${props.ward_name ?? id}`)
-        rows.push(`<b>Borough:</b> ${props.borough ?? (level === 'borough' ? id : '')}`)
-        rows.push(`<b>Crime count:</b> ${Math.round(count).toLocaleString()}`)
-        rows.push(
-          `<b>${metricLabel}:</b> ${
-            value === undefined
-              ? '—'
-              : value.toLocaleString(undefined, { maximumFractionDigits: 1 })
-          }`,
-        )
-        return {
-          html: rows.join('<br/>'),
-          style: {
-            ...TOOLTIP_STYLE[theme],
-            fontSize: '12px',
-            padding: '8px 10px',
-            borderRadius: '8px',
-            boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
-          },
-        }
-      }}
-    >
-      <Map reuseMaps mapStyle={BASEMAP[theme]} />
-    </DeckGL>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <DeckGL
+        viewState={viewState}
+        controller={{ dragRotate: false }}
+        onViewStateChange={({ viewState: vs }) => setViewState(vs as unknown as ViewState)}
+        layers={layers}
+        onClick={displaySchedule}
+        getTooltip={({ object }: { object?: BoundaryFeature }) => {
+          if (!object) return null
+          const props = object.properties
+          const id = String(props[idProp])
+          const value = values[id]
+          const count = counts[id] ?? 0
+          const rows: string[] = []
+          if (level === 'lsoa') rows.push(`<b>LSOA:</b> ${props.lsoa_name ?? id}`)
+          if (level === 'ward') rows.push(`<b>Ward:</b> ${props.ward_name ?? id}`)
+          rows.push(`<b>Borough:</b> ${props.borough ?? (level === 'borough' ? id : '')}`)
+          rows.push(`<b>Crime count:</b> ${Math.round(count).toLocaleString()}`)
+          rows.push(
+            `<b>${metricLabel}:</b> ${
+              value === undefined
+                ? '—'
+                : value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+            }`,
+          )
+          if (isForecast) {
+            rows.push("<span className=\"text-xs text-muted\">Click to see unit allocation schedule.</span>")
+          }
+          return {
+            html: rows.join('<br/>'),
+            style: {
+              ...TOOLTIP_STYLE[theme],
+              fontSize: '12px',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+            },
+          }
+        }}
+      >
+        <Map reuseMaps mapStyle={BASEMAP[theme]} />
+      </DeckGL>
+
+      {popup && (
+        <SchedulePopup
+          popup={popup}
+          theme={theme}
+          onClose={() => setPopup(null)}
+        />
+      )}
+    </div>
   )
 }

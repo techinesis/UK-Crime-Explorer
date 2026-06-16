@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { fetchMeta, fetchWeights } from './lib/api'
+import { fetchAllocation, fetchMeta, fetchWeights } from './lib/api'
 import { useCrimeData } from './hooks/useCrimeData'
 import { metricCaption, useFilters } from './hooks/useFilters'
 import { useAnimation } from './hooks/useAnimation'
@@ -20,7 +20,9 @@ import Footer from './components/Footer'
 import ChatPanel from './components/ChatPanel'
 import NavBar from './components/NavBar'
 import AboutPage from './pages/AboutPage'
+import AllocationPage from './pages/AllocationPage'
 import { useChatAvailable } from './hooks/useChatHealth'
+import type { AllocationRequest } from './lib/types'
 
 export default function App() {
   return (
@@ -30,6 +32,7 @@ export default function App() {
         <div className="min-h-0 flex-1">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/allocation" element={<AllocationPage />} />
             <Route path="/about" element={<AboutPage />} />
           </Routes>
         </div>
@@ -49,11 +52,38 @@ function Dashboard() {
   
   const meta = useQuery({ queryKey: ['meta', filters.city], queryFn: () => fetchMeta(filters.city) })
   const weights = useQuery({ queryKey: ['weights', filters.city], queryFn: fetchWeights })
+  const allocation = useQuery({
+    queryKey: [
+      'allocation',
+      filters.city,
+      filters.totalUnits,
+      filters.allocationModel,
+      filters.allocationModel !== 'baseline' ? filters.allocMinUnitsPerLsoa : null,
+      filters.allocationModel === 'lp' ? filters.allocAlpha : null,
+      filters.allocationModel === 'lp' ? filters.allocBeta : null,
+      filters.allocationModel === 'lp' ? filters.allocMaxCapFactor : null,
+      filters.allocationModel === 'lp' ? filters.allocEquityFloor : null,
+    ],
+    queryFn: () => {
+      const req: AllocationRequest = {
+        city: filters.city,
+        totalUnits: filters.totalUnits,
+        model: filters.allocationModel,
+      }
+      if (filters.allocationModel !== 'baseline') {
+        req.minUnitsPerLsoa = filters.allocMinUnitsPerLsoa
+      }
+      if (filters.allocationModel === 'lp') {
+        req.alpha = filters.allocAlpha
+        req.beta = filters.allocBeta
+        req.maxCapFactor = filters.allocMaxCapFactor
+        req.equityFloor = filters.allocEquityFloor
+      }
+      return fetchAllocation(req)
+    },
+  })
 
   const { boundaries, map, boroughMap } = useCrimeData(filters)
-
-  console.log(meta.data);
-  console.log(map.data);
 
   const isForecast = filters.mode === 'forecast'
 
@@ -113,9 +143,11 @@ function Dashboard() {
               map={map.data}
               level={filters.level}
               borough={filters.borough}
+              isForecast={isForecast}
               metricLabel={caption}
               theme={theme}
               meta={meta.data}
+              allocation={allocation.data}
             />
           </div>
 
