@@ -4,6 +4,9 @@ fastapi
 pandas
 pyarrow
 numpy==1.26.4
+scipy                  # allocation LP solver (scipy.optimize.linprog), imported at app
+                       # startup via backend/allocation — without it the whole function
+                       # 500s on import (every /api route, not just allocation)
 pydantic>=2
 anthropic              # AI chat (Phase 1) Claude client; chat self-disables if no key
 # NOTE: rank_bm25 and slowapi (chat RAG + rate limiting) are intentionally NOT here

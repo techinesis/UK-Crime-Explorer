@@ -36,6 +36,8 @@ frontend/dist/
 frontend/.vite/
 # Generated static boundaries (rebuilt from data/*.geojson by prepare-static.mjs)
 frontend/public/boundaries/
+# Forecast: the committed source is forecast_dashboard_long.json.gz (~3 MB); the raw
+# .json below is regenerated from it at build time by prepare-forecast.mjs, so ignore it.
 frontend/public/forecast_dashboard_long.json
 # Vite builds the SPA here (repo-root public/) for Vercel's FastAPI static serving
 /public/

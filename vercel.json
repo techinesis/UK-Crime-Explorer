@@ -5,6 +5,7 @@
   "functions": {
     "api/index.py": {
       "includeFiles": "{backend,data}/**",
+      "excludeFiles": "data/*_boundaries_clean.geojson",
       "maxDuration": 60
     }
   },

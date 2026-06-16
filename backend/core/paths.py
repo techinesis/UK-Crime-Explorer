@@ -28,7 +28,11 @@ UNIT_IDS_JSON = DATA_DIR / "unit_ids.json"
 def crime_snapshot(city: str) -> Path:
     return DATA_DIR / f"crime_snapshot-{city}.parquet"
 
-FORECAST_CSV = Path(os.environ.get("FORECAST_CSV", REPO_ROOT / "frontend" / "public" / "forecast_dashboard_long.csv"))
+# Forecast long table for the allocation model. Committed under data/ (gzipped, ~3 MB)
+# so it ships into the Vercel function via includeFiles; pandas.read_csv decompresses
+# .gz transparently. (It lived under frontend/public/ before, which the function never
+# bundles — so allocation silently fell back to historical data in production.)
+FORECAST_CSV = Path(os.environ.get("FORECAST_CSV", DATA_DIR / "forecast_dashboard_long.csv.gz"))
 
 # Source boundary GeoJSON, used only by ETL / pre-bake tooling (not the API).
 LSOA_BOUNDARIES = DATA_DIR / "lsoa_boundaries_clean.geojson"

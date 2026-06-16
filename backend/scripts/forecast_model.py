@@ -396,6 +396,12 @@ def main():
 
     forecast_dashboard.to_csv(args.output_dir / "forecast_dashboard_long.csv", index=False)
     forecast_dashboard.to_json(args.output_dir / "forecast_dashboard_long.json", orient="records", indent=2)
+    # NOTE: the raw .csv/.json above are dev outputs (gitignored, ~120 MB) and are NOT
+    # what production ships. After regenerating, run
+    #   python backend/scripts/prepare_forecast_artifacts.py
+    # to (re)build the committed, deployed artifacts: data/forecast_dashboard_long.csv.gz
+    # (read by the API) and frontend/public/forecast_dashboard_long.json.gz (expanded at
+    # build time by prepare-forecast.mjs and fetched by the SPA).
     dashboard_all.to_csv(args.output_dir / "dashboard_crime_predictions.csv", index=False)
     test_predictions.to_csv(args.output_dir / "test_predictions_dashboard.csv", index=False)
     evaluation.to_csv(args.output_dir / "model_evaluation_70_30.csv", index=False)
