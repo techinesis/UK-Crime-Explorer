@@ -52,7 +52,14 @@ class _FakeStreamMessages:
         self.calls: list[dict] = []
 
     def stream(self, **kwargs: object) -> _FakeStream:
-        self.calls.append(kwargs)
+        # Snapshot the messages list: run_chat_stream reuses one ``convo`` list
+        # across tool-loop rounds and passes it by reference, then mutates it. A
+        # shallow copy freezes what *this* round actually sent.
+        snapshot = dict(kwargs)
+        msgs = snapshot.get("messages")
+        if isinstance(msgs, list):
+            snapshot["messages"] = list(msgs)
+        self.calls.append(snapshot)
         return self._turns.pop(0)
 
 
@@ -141,9 +148,12 @@ def mock_llm():
     @contextmanager
     def _mock(turns: list[_FakeStream] | None = None):
         chosen = _default_turns() if turns is None else turns
+        fake = FakeClient(list(chosen))
         with mock.patch.object(chat_core, "chat_available", lambda: True), mock.patch.object(
-            chat_core, "build_client", lambda: FakeClient(list(chosen))
+            chat_core, "build_client", lambda: fake
         ):
-            yield
+            # Yields the fake so a test can assert on what reached the LLM
+            # (``fake.messages.calls``). Callers using ``with mock_llm():`` ignore it.
+            yield fake
 
     return _mock

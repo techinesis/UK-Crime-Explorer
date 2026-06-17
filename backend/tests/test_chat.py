@@ -872,3 +872,59 @@ def test_chat_streams_sse_events_over_http_with_mocked_client(http_client, monke
     tool_call = next(e for e in events if e["type"] == "tool_call")
     assert tool_call["name"] == "get_weights"
     assert "action" not in kinds
+
+
+def test_chat_message_round_trips_tool_calls_and_results():
+    """The extended ChatMessage schema accepts and preserves tool history, and
+    leaves both new fields None when they are absent (back-compat)."""
+    from api.chat import ChatMessage
+
+    msg = ChatMessage.model_validate(
+        {
+            "role": "assistant",
+            "content": "Here are the weights.",
+            "tool_calls": [{"name": "get_weights", "input": {"category": "Drugs"}, "id": "t1"}],
+            "tool_results": [
+                {"tool_use_id": "t1", "name": "get_weights", "output": {"rows": 14}}
+            ],
+        }
+    )
+    assert msg.tool_calls is not None
+    assert msg.tool_calls[0].name == "get_weights"
+    assert msg.tool_calls[0].input == {"category": "Drugs"}
+    assert msg.tool_calls[0].id == "t1"
+    assert msg.tool_results is not None
+    assert msg.tool_results[0].tool_use_id == "t1"
+    assert msg.tool_results[0].output == {"rows": 14}
+
+    bare = ChatMessage.model_validate({"role": "user", "content": "hi"})
+    assert bare.tool_calls is None
+    assert bare.tool_results is None
+
+
+def test_chat_endpoint_trims_history_over_budget(http_client, monkeypatch):
+    """A payload whose history exceeds the token budget reaches the model trimmed
+    to the most recent turns. Four messages (well under the 10-message core slice)
+    isolate the upstream trimmer's effect."""
+    fake = FakeClient([_text_turn("ok")])
+    monkeypatch.setattr(chat_core, "chat_available", lambda: True)
+    monkeypatch.setattr(chat_core, "build_client", lambda: fake)
+
+    long = "z" * 9000  # ~2250 approx-tokens each; four of them exceed 8000
+    payload = {
+        "messages": [
+            {"role": "user", "content": "OLDEST " + long},
+            {"role": "assistant", "content": long},
+            {"role": "user", "content": long},
+            {"role": "user", "content": "NEWEST " + long},
+        ],
+        "persona": "police",
+    }
+    res = http_client.post("/api/chat", json=payload)
+    assert res.status_code == 200
+    _ = res.text  # drain the stream so the mocked call is recorded
+
+    sent = fake.messages.calls[0]["messages"]
+    assert len(sent) < 4  # the trimmer dropped the oldest turn(s)
+    assert sent[-1]["content"].startswith("NEWEST")
+    assert not any(m["content"].startswith("OLDEST") for m in sent)

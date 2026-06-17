@@ -106,6 +106,56 @@ function loadPersona(): Persona {
   return 'police'
 }
 
+// --- Transcript persistence (sessionStorage, per persona) ------------------ //
+// sessionStorage (NOT localStorage): the transcript survives a tab reload but is
+// discarded when the tab closes. One key per persona keeps voices isolated.
+
+const TRANSCRIPT_SCHEMA_VERSION = 1
+const turnsKey = (persona: Persona): string => `crime-chat-turns:${persona}`
+
+interface StoredTranscript {
+  schema_version: number
+  persona: Persona
+  turns: ChatTurn[]
+  updated_at?: string
+}
+
+/** Read a persona's transcript from sessionStorage. Any error, a missing entry,
+ * or a schema-version mismatch (stale tab from a prior deploy) yields []. */
+function loadTurns(persona: Persona): ChatTurn[] {
+  try {
+    const raw = sessionStorage.getItem(turnsKey(persona))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as Partial<StoredTranscript>
+    if (parsed?.schema_version !== TRANSCRIPT_SCHEMA_VERSION) return []
+    return Array.isArray(parsed.turns) ? (parsed.turns as ChatTurn[]) : []
+  } catch {
+    return []
+  }
+}
+
+/** Persist a persona's transcript. An empty transcript removes the key (so a
+ * cleared persona leaves nothing behind). Returns false on quota/unavailability
+ * so the caller can surface a non-fatal warning. */
+function saveTurns(persona: Persona, turns: ChatTurn[]): boolean {
+  try {
+    if (turns.length === 0) {
+      sessionStorage.removeItem(turnsKey(persona))
+    } else {
+      const payload: StoredTranscript = {
+        schema_version: TRANSCRIPT_SCHEMA_VERSION,
+        persona,
+        turns,
+        updated_at: new Date().toISOString(),
+      }
+      sessionStorage.setItem(turnsKey(persona), JSON.stringify(payload))
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 // --- Helpers --------------------------------------------------------------- //
 
 /** Current dashboard FilterState → MapRequest (the API's snake_case shape). */
@@ -161,13 +211,27 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ open, onClose, filters, update }: ChatPanelProps) {
-  const [turns, setTurns] = useState<ChatTurn[]>([])
+  const [turns, setTurns] = useState<ChatTurn[]>(() => loadTurns(loadPersona()))
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [persona, setPersona] = useState<Persona>(loadPersona)
   const [panelWidth, setPanelWidth] = useState(MIN_PANEL_WIDTH)
+  // "Continuing previous conversation" hint: shown when a non-empty transcript is
+  // hydrated (on mount or persona switch), cleared once the user sends a message.
+  const [showContinued, setShowContinued] = useState<boolean>(() => turns.length > 0)
+  // Sticky for the session once a sessionStorage write fails (quota/unavailable).
+  const [persistFailed, setPersistFailed] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Refs let the persist/switch effects read the latest persona & turns without
+  // widening their dependency arrays — which is what keeps a persona switch from
+  // writing the outgoing transcript under the incoming persona's key.
+  const personaRef = useRef(persona)
+  personaRef.current = persona
+  const prevPersonaRef = useRef(persona)
+  const turnsRef = useRef(turns)
+  turnsRef.current = turns
 
   // Persist persona choice across sessions.
   useEffect(() => {
@@ -176,6 +240,27 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
     } catch {
       // ignore persistence failures
     }
+  }, [persona])
+
+  // Persist the transcript on every change, under the *active* persona's key.
+  // Depends on [turns] only: on a persona switch the turns are unchanged for one
+  // render, so this never writes the old transcript under the new persona's key.
+  useEffect(() => {
+    if (!saveTurns(personaRef.current, turns)) setPersistFailed(true)
+  }, [turns])
+
+  // On a real persona switch, stash the outgoing persona's transcript under its
+  // own key, then hydrate the incoming persona's transcript. Uses refs so it can
+  // run on [persona] alone and still see the (not-yet-rehydrated) outgoing turns.
+  useEffect(() => {
+    const prev = prevPersonaRef.current
+    if (prev === persona) return // initial mount, or no actual change
+    saveTurns(prev, turnsRef.current)
+    const loaded = loadTurns(persona)
+    setTurns(loaded)
+    setShowContinued(loaded.length > 0)
+    setError(null)
+    prevPersonaRef.current = persona
   }, [persona])
 
   // Re-clamp the drawer if the window shrinks below its ⅓-viewport budget.
@@ -337,6 +422,7 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
     const userTurn: ChatTurn = { role: 'user', content: trimmed, ts: Date.now() }
     const history = [...turns, userTurn]
     setTurns(history)
+    setShowContinued(false) // a new message means we're no longer "continuing"
     setInput('')
     runStream(history.map((t) => ({ role: t.role, content: t.content })))
   }
@@ -354,6 +440,12 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
     if (isStreaming) return
     setTurns([])
     setError(null)
+    setShowContinued(false)
+    try {
+      sessionStorage.removeItem(turnsKey(persona))
+    } catch {
+      // ignore — the empty-transcript persist effect also clears the key
+    }
   }
 
   const starters = STARTER_PROMPTS_BY_PERSONA[persona]
@@ -428,6 +520,10 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+        {persistFailed && (
+          <p className="text-[11px] text-muted">History persistence unavailable for this session.</p>
+        )}
+
         {turns.length === 0 && (
           <div className="space-y-3">
             <p className="text-xs text-muted">
@@ -445,6 +541,10 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
               ))}
             </div>
           </div>
+        )}
+
+        {showContinued && turns.length > 0 && (
+          <p className="text-[11px] text-muted">Continuing previous conversation</p>
         )}
 
         {turns.map((turn, index) => (

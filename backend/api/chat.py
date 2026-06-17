@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 
 from api.schemas import MapRequest
 from core import chat as chat_core
+from core.chat_history import trim_history
 
 # slowapi is optional at import time (absent from the lean prod function).
 try:
@@ -59,9 +60,26 @@ _limiter = Limiter(key_func=get_remote_address) if _SLOWAPI_AVAILABLE else None
 # --------------------------------------------------------------------------- #
 
 
+class ChatToolCall(BaseModel):
+    name: str
+    input: dict[str, Any] = Field(default_factory=dict)
+    id: str | None = None  # Anthropic tool-use id for matching results
+
+
+class ChatToolResult(BaseModel):
+    tool_use_id: str | None = None
+    name: str
+    output: dict[str, Any] | str  # already-JSON-serialisable
+
+
 class ChatMessage(BaseModel):
     role: str  # "user" | "assistant"
     content: str
+    # Optional history of tool invocations on a prior assistant turn, so the
+    # model can follow up on "explain that get_weights call". Both default to
+    # None, so existing single role/content payloads still validate.
+    tool_calls: list[ChatToolCall] | None = None
+    tool_results: list[ChatToolResult] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -98,7 +116,11 @@ def _run_chat_request(body: ChatRequest) -> Response:
     if not (chat_core.chat_available() and _SLOWAPI_AVAILABLE):
         return JSONResponse(status_code=503, content=_NOT_CONFIGURED)
 
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    # Cap the history sent to the model to a fixed token budget (the UI keeps the
+    # full transcript; only the LLM payload is trimmed). trim_history([]) -> [],
+    # so the empty-input 400 below still fires.
+    trimmed = trim_history(body.messages)
+    messages = [{"role": m.role, "content": m.content} for m in trimmed]
     if not messages:
         return JSONResponse(status_code=400, content={"error": "messages must not be empty"})
 

@@ -63,6 +63,27 @@ def test_chat_http(client, mock_llm, monkeypatch):
     assert any(e["type"] == "tool_call" for e in events), "no tool_call event in stream"
     assert any(e["type"] == "action" for e in events), "no action event in stream"
 
+    # --- multi-turn payload reaches the mocked LLM with every turn intact ------
+    with mock_llm() as fake:
+        res = client.post(
+            "/api/chat",
+            json={
+                "messages": [
+                    {"role": "user", "content": "Show me Camden"},
+                    {"role": "assistant", "content": "Here is Camden."},
+                    {"role": "user", "content": "Now Westminster"},
+                ],
+                "persona": "police",
+            },
+        )
+    assert res.status_code == 200
+    sent = fake.messages.calls[0]["messages"]
+    assert [m["content"] for m in sent] == [
+        "Show me Camden",
+        "Here is Camden.",
+        "Now Westminster",
+    ], f"history not forwarded intact: {sent}"
+
     # --- rate limit: the 21st request inside the window returns 429 ------------
     assert api_chat._limiter is not None, "rate limiter not configured"
     api_chat._limiter.reset()  # isolate the burst from the requests above
