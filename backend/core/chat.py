@@ -29,6 +29,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+import pandas as pd
+
 from core.composite import (
     METRIC_COLUMNS,
     VALID_METRICS,
@@ -46,6 +48,7 @@ from core.data import (
     aggregate,
     filter_crime_df,
     get_crime_long,
+    get_forecast_raw,
 )
 from core.geometry import LEVELS
 from core.weights import weights_records
@@ -172,11 +175,16 @@ in natural language.
   answer with the composite (or preventability) ranking via `query_data`, then state
   explicitly that the deployment decision remains with the planner. Never give an
   officer count and never say "deploy N here".
-- **You cannot forecast future crime or compute an allocation — those tools are not
-  connected to you yet.** If asked for a forecast figure or an optimal allocation, say
-  so plainly (the dashboard's forecast view is a prototype, not a model you can read)
-  and offer the current ranking instead. Never fabricate a forward-looking or
-  allocation number.
+- **You CAN look up forecast figures and allocation rankings.** Use `get_forecast` for
+  predicted crime counts and `get_allocation` for the LP ranking (or the Rawls /
+  averaging variants if asked to compare). The forecast and allocation pipelines that
+  drive the dashboard's forecast view and allocation page are the same ones you read
+  from — your answers will match what the user sees on screen.
+- **The deployment guardrail still applies.** You rank and explain; the deployment
+  decision always stays with a human planner. For "where should we deploy / how many
+  officers / what should we do" questions, return the ranking from `get_allocation`
+  plus a one-line note that the planner makes the final call. Never give an officer
+  count phrased as a recommendation, and never say "deploy N here."
 - Do not claim the dashboard view changed unless you actually called set_filters.
 - Write replies in plain GitHub-flavoured markdown (bold, lists, tables). Never use
   LaTeX or math delimiters like $$…$$ — the chat renders them as literal text.
@@ -363,6 +371,78 @@ TOOLS: list[dict[str, Any]] = [
                 }
             },
             "required": ["topic"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_forecast",
+        "description": (
+            "Look up the project's per-LSOA, per-category, per-month forecasted crime "
+            "count. Use when the user asks 'what does the forecast say for X' or 'how "
+            "much crime is predicted in [area] [category] [month]'. Returns predicted "
+            "counts plus a small breakdown."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string", "default": "london"},
+                "borough": {
+                    "type": "string",
+                    "description": "Optional borough filter (e.g. 'Camden'). Omit to span all boroughs.",
+                },
+                "lsoa_code": {
+                    "type": "string",
+                    "description": "Optional LSOA code (e.g. 'E01000001'). Most specific filter.",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Optional crime category (e.g. 'Violence against the person'). Omit to sum across categories.",
+                },
+                "month": {
+                    "type": "string",
+                    "description": "Optional month in YYYY-MM format (e.g. '2026-04'). Omit to span the full forecast horizon.",
+                },
+                "top_n": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "When ranking (no LSOA filter), how many top entries to return.",
+                },
+                "group_by": {
+                    "type": "string",
+                    "enum": ["lsoa", "borough", "category", "month"],
+                    "default": "lsoa",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_allocation",
+        "description": (
+            "Compute or look up the LP allocation ranking for the current production "
+            "parameters (or supplied overrides). Use when the user asks 'how many units "
+            "does the allocation send to [borough]', 'rank the boroughs by allocated "
+            "units', or 'how does the Rawls variant differ'. Returns a ranked summary "
+            "plus borough rollups. The tool answers with a ranking — it does NOT "
+            "prescribe a deployment."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string", "default": "london"},
+                "model": {
+                    "type": "string",
+                    "enum": ["lp", "rawls", "averaging"],
+                    "default": "lp",
+                },
+                "total_units": {"type": "integer", "default": 33000},
+                "group_by": {
+                    "type": "string",
+                    "enum": ["lsoa", "borough"],
+                    "default": "borough",
+                },
+                "top_n": {"type": "integer", "default": 10},
+            },
             "additionalProperties": False,
         },
     },
@@ -682,11 +762,192 @@ def tool_read_docs(args: dict[str, Any]) -> tuple[dict[str, Any], None, str]:
     return {"topic": topic, "chunks": chunks}, None, summary
 
 
+# Cities with a committed forecast file. The forecast covers London LSOAs only;
+# the other KNOWN_CITIES have no forecast yet (the tool errors clearly for them).
+FORECAST_CITIES: frozenset[str] = frozenset({"london"})
+
+# get_forecast group_by token -> actual column in the get_forecast_raw frame.
+_FORECAST_GROUP_COL: dict[str, str] = {
+    "lsoa": "lsoa_code",
+    "borough": "borough",
+    "category": "category",
+    "month": "month",
+}
+
+
+def tool_get_forecast(args: dict[str, Any]) -> tuple[dict[str, Any], None, str]:
+    """Look up forecasted crime counts from the committed forecast file.
+
+    Reads the same forecast the dashboard's forecast view renders (via
+    :func:`core.data.get_forecast_raw`), applies optional ``borough`` / ``lsoa_code``
+    / ``category`` / ``month`` filters, groups by ``group_by`` and sums
+    ``predicted_crimes``, returning the top ``top_n`` rows sorted descending.
+    """
+    city = str(args.get("city") or DEFAULT_CITY).strip().lower()
+    if city not in FORECAST_CITIES:
+        msg = f"city {city!r} not in the forecast file"
+        return {"error": msg}, None, msg
+
+    group_by = str(args.get("group_by") or "lsoa").strip().lower()
+    if group_by not in _FORECAST_GROUP_COL:
+        group_by = "lsoa"
+    try:
+        top_n = int(args.get("top_n") or 10)
+    except (TypeError, ValueError):
+        top_n = 10
+    top_n = max(1, min(top_n, 200))
+
+    df = get_forecast_raw(city)
+
+    applied: dict[str, Any] = {"city": city, "group_by": group_by, "top_n": top_n}
+    mask = pd.Series(True, index=df.index)
+    if args.get("lsoa_code"):
+        code = str(args["lsoa_code"]).strip()
+        applied["lsoa_code"] = code
+        mask &= df["lsoa_code"].astype(str) == code
+    if args.get("borough"):
+        borough = str(args["borough"]).strip()
+        applied["borough"] = borough
+        mask &= df["borough"].astype(str).str.casefold() == borough.casefold()
+    if args.get("category"):
+        raw_cat = str(args["category"]).strip()
+        canon = CANONICAL_CATEGORY.get(raw_cat.lower(), raw_cat)
+        applied["category"] = canon
+        mask &= df["category"].astype(str) == canon
+    if args.get("month"):
+        month = str(args["month"]).strip()
+        applied["month"] = month
+        mask &= df["month"].astype(str) == month
+
+    filtered = df[mask]
+    n_rows = int(len(filtered))
+    total = float(filtered["predicted_crimes"].sum()) if n_rows else 0.0
+
+    if n_rows:
+        col = _FORECAST_GROUP_COL[group_by]
+        grouped = (
+            filtered.groupby(col, as_index=False)["predicted_crimes"]
+            .sum()
+            .sort_values("predicted_crimes", ascending=False)
+            .head(top_n)
+            .rename(columns={col: "key"})
+        )
+        rows = [
+            {"key": str(r.key), "predicted_crimes": round(float(r.predicted_crimes), 2)}
+            for r in grouped.itertuples(index=False)
+        ]
+    else:
+        rows = []
+
+    result = {
+        "rows": rows,
+        "filters": applied,
+        "total_predicted": round(total, 2),
+        "n_rows_after_filter": n_rows,
+    }
+    summary = (
+        f"forecast by {group_by}: {len(rows)} row(s), total~{round(total, 1)}"
+        if rows
+        else f"forecast by {group_by}: no rows matched"
+    )
+    return result, None, summary
+
+
+def tool_get_allocation(args: dict[str, Any]) -> tuple[dict[str, Any], None, str]:
+    """Rank the LP (or Rawls / averaging) allocation by borough or LSOA.
+
+    Calls the same allocation pipeline the dashboard's allocation page uses (via
+    :func:`core.allocation_chat.default_allocation`, which solves with the production
+    defaults and caches per ``(city, model, total_units)``), then aggregates the
+    per-LSOA units by ``group_by`` and returns the top ``top_n`` rows sorted
+    descending. The tool ranks and explains — it never prescribes a deployment.
+    """
+    city = str(args.get("city") or DEFAULT_CITY).strip().lower()
+    if city != "london":
+        msg = "allocation is only available for london"
+        return {"error": msg}, None, msg
+
+    model = str(args.get("model") or "lp").strip().lower()
+    if model not in ("lp", "rawls", "averaging"):
+        model = "lp"
+    group_by = str(args.get("group_by") or "borough").strip().lower()
+    if group_by not in ("lsoa", "borough"):
+        group_by = "borough"
+    try:
+        # 33000 mirrors the dashboard's DEFAULT_FILTERS.totalUnits (frontend
+        # useFilters.ts) so the chat's default answer matches the allocation page; it
+        # is also above the min-units feasibility floor (6 * ~5160 LSOAs = 30960).
+        total_units = int(args.get("total_units") or 33000)
+    except (TypeError, ValueError):
+        total_units = 33000
+    try:
+        top_n = int(args.get("top_n") or 10)
+    except (TypeError, ValueError):
+        top_n = 10
+    top_n = max(1, min(top_n, 200))
+
+    try:
+        from core.allocation_chat import default_allocation
+    except ImportError:
+        # scipy / allocation deps unavailable (e.g. a lean function without them).
+        return (
+            {"error": "allocation is unavailable (solver dependencies missing)"},
+            None,
+            "allocation unavailable (deps missing)",
+        )
+
+    try:
+        resp = default_allocation(city, model, total_units)
+    except Exception as exc:  # noqa: BLE001
+        # The solver can fail on a degenerate/infeasible parameter set: LPModel raises
+        # AllocationInfeasibleError (caught inside the payload and returned as a
+        # warning), but RawlsModel can crash outright when its LP has no solution.
+        # Surface either as a clean infeasible_warning so the response shape is stable
+        # and the model can explain it rather than the request erroring out.
+        msg = f"allocation could not be solved with these parameters ({exc})"
+        return (
+            {"rows": [], "model": model, "total_units": total_units, "infeasible_warning": msg},
+            None,
+            f"{model} allocation: not solvable",
+        )
+
+    # Aggregate the per-LSOA entries by the requested dimension.
+    sums: dict[str, float] = {}
+    for e in resp.entries:
+        key = e.borough if group_by == "borough" else e.lsoa_code
+        sums[str(key)] = sums.get(str(key), 0.0) + float(e.units)
+    grand_total = sum(sums.values())
+
+    ranked = sorted(sums.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    rows = [
+        {
+            "key": key,
+            "units": round(units, 2),
+            "share": round(units / grand_total, 4) if grand_total else 0.0,
+        }
+        for key, units in ranked
+    ]
+
+    warning = resp.warning or None
+    result = {
+        "rows": rows,
+        "model": model,
+        "total_units": total_units,
+        "infeasible_warning": warning,
+    }
+    summary = f"{model} allocation by {group_by}: {len(rows)} row(s)" + (
+        f" — {warning}" if warning else ""
+    )
+    return result, None, summary
+
+
 _TOOL_DISPATCH: dict[str, Callable[..., tuple[dict[str, Any], dict[str, Any] | None, str]]] = {
     "set_filters": tool_set_filters,
     "query_data": tool_query_data,
     "get_weights": tool_get_weights,
     "read_docs": tool_read_docs,
+    "get_forecast": tool_get_forecast,
+    "get_allocation": tool_get_allocation,
 }
 
 
@@ -719,9 +980,23 @@ def dispatch_tool(
 _README_PATH = _REPO_ROOT / "README.md"
 _MAIN_PY_PATH = _BACKEND_DIR / "api" / "main.py"
 _PREPARE_WEIGHTS_PATH = _BACKEND_DIR / "scripts" / "prepare_category_weights.py"
+_FORECAST_PY_PATH = _BACKEND_DIR / "scripts" / "forecast_model.py"
+_ALLOCATION_PY_PATH = _BACKEND_DIR / "allocation" / "__init__.py"
 
 _MIN_CHUNK_CHARS = 40
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+# Drop the most common English function words before BM25 scoring. In a small corpus
+# a verbose prose chunk (e.g. the Rawls model docstring) can otherwise dominate an
+# unrelated query purely on words like "is"/"how"; filtering them lets content words
+# ("preventability", "allocation") decide the ranking.
+_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "of", "to", "and", "or", "in", "on", "for", "is", "are",
+        "be", "by", "with", "how", "what", "why", "does", "do", "this", "that",
+        "it", "as", "at", "from", "we", "you", "i",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -731,7 +1006,7 @@ class DocChunk:
 
 
 def _tokenize(text: str) -> list[str]:
-    return _TOKEN_RE.findall(text.lower())
+    return [t for t in _TOKEN_RE.findall(text.lower()) if t not in _STOPWORDS]
 
 
 def _readme_chunks(path: Path) -> list[DocChunk]:
@@ -765,6 +1040,34 @@ def _py_docstring_chunks(path: Path, source_label: str) -> list[DocChunk]:
 
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node)
+            if doc and len(doc) >= _MIN_CHUNK_CHARS:
+                chunks.append(DocChunk(source=source_label, text=f"{node.name}: {doc.strip()}"))
+    return chunks
+
+
+def _class_docstring_chunks(path: Path, source_label: str, wanted: set[str]) -> list[DocChunk]:
+    """Module docstring + the docstrings of the named top-level classes.
+
+    The allocation models (LPModel, RawlsModel, AveragingModel) document their LP
+    objective and constraints in *class* docstrings, which :func:`_py_docstring_chunks`
+    (module + functions only) does not reach.
+    """
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+        tree = ast.parse(text)
+    except (OSError, SyntaxError):
+        return []
+
+    chunks: list[DocChunk] = []
+    module_doc = ast.get_docstring(tree)
+    if module_doc and len(module_doc) >= _MIN_CHUNK_CHARS:
+        chunks.append(DocChunk(source=source_label, text=module_doc.strip()))
+
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name in wanted:
             doc = ast.get_docstring(node)
             if doc and len(doc) >= _MIN_CHUNK_CHARS:
                 chunks.append(DocChunk(source=source_label, text=f"{node.name}: {doc.strip()}"))
@@ -810,6 +1113,12 @@ def _load_corpus() -> list[DocChunk]:
         *_readme_chunks(_README_PATH),
         *_py_docstring_chunks(_MAIN_PY_PATH, "api/main.py"),
         *_prepare_weights_chunks(_PREPARE_WEIGHTS_PATH),
+        *_py_docstring_chunks(_FORECAST_PY_PATH, "scripts/forecast_model.py"),
+        *_class_docstring_chunks(
+            _ALLOCATION_PY_PATH,
+            "allocation/__init__.py",
+            {"LPModel", "RawlsModel", "AveragingModel"},
+        ),
     ]
 
 

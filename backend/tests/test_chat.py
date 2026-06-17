@@ -98,9 +98,16 @@ def _tool_turn(tool_id: str, name: str, args: dict) -> _FakeStream:
 # --------------------------------------------------------------------------- #
 
 
-def test_tool_registry_has_the_four_phase1_tools():
+def test_tool_registry_has_all_tools():
     names = {t["name"] for t in TOOLS}
-    assert names == {"set_filters", "query_data", "get_weights", "read_docs"}
+    assert names == {
+        "set_filters",
+        "query_data",
+        "get_weights",
+        "read_docs",
+        "get_forecast",
+        "get_allocation",
+    }
 
 
 def test_every_tool_declares_a_valid_input_schema():
@@ -311,13 +318,14 @@ def test_query_data_groups_by_year_and_month():
 
 
 def test_query_data_hints_available_months_for_a_gappy_year():
-    # Sep 2024 is one of the recent window's missing months: empty result, and
-    # the hint names which months of 2024 ARE covered.
-    result, _, _ = tool_query_data({"year": 2024, "months": [9], "group_by": "category"})
+    # The recent-window snapshot starts in May 2023, so 2023 is present but gappy:
+    # Jan-Apr are missing while May-Dec are covered. Querying a missing month returns
+    # an empty result, and the hint names which months of 2023 ARE covered.
+    result, _, _ = tool_query_data({"year": 2023, "months": [2], "group_by": "category"})
     assert result["total_crime_count"] == 0
     hint = result["hint"]
-    assert 9 not in hint["available_months_in_year"]
-    assert 1 in hint["available_months_in_year"]
+    assert 2 not in hint["available_months_in_year"]
+    assert 5 in hint["available_months_in_year"]
 
 
 def test_query_data_empty_result_carries_an_available_years_hint():
@@ -404,6 +412,19 @@ def test_read_docs_surfaces_literature_anchors_for_preventability():
     assert "Weisburd" in blob or "Braga" in blob
 
 
+def test_read_docs_surfaces_the_lp_allocation_methodology():
+    # Phase 3 added the allocation model docstrings to the BM25 corpus so methodology
+    # questions about the LP are answered from source rather than improvised.
+    pytest.importorskip("rank_bm25")
+    result, action, _ = dispatch_tool(
+        "read_docs", {"topic": "lp allocation linear program objective equity floor"}
+    )
+    assert action is None
+    chunks = result["chunks"]
+    assert chunks, "expected at least one documentation chunk"
+    assert "allocation/__init__.py" in {c["source"] for c in chunks}
+
+
 def test_dispatch_unknown_tool_returns_error_not_crash():
     result, action, summary = dispatch_tool("teleport", {})
     assert action is None
@@ -413,6 +434,154 @@ def test_dispatch_unknown_tool_returns_error_not_crash():
 def test_dispatch_tool_catches_tool_errors():
     # A bad enum inside set_filters should be reported, not raised.
     result, action, summary = dispatch_tool("set_filters", {"metric": "bogus"})
+    assert action is None
+    assert "error" in result
+
+
+# --------------------------------------------------------------------------- #
+# get_forecast (reads the committed forecast file)
+# --------------------------------------------------------------------------- #
+
+
+def test_get_forecast_ranks_boroughs_by_predicted_crimes():
+    result, action, summary = dispatch_tool(
+        "get_forecast", {"city": "london", "group_by": "borough", "top_n": 5}
+    )
+    assert action is None
+    assert set(result) == {"rows", "filters", "total_predicted", "n_rows_after_filter"}
+    rows = result["rows"]
+    assert 1 <= len(rows) <= 5
+    values = [r["predicted_crimes"] for r in rows]
+    assert values == sorted(values, reverse=True)  # ranked descending
+    assert all(r["key"] for r in rows)
+    assert result["total_predicted"] > 0
+    assert result["n_rows_after_filter"] > 0
+    assert result["filters"]["group_by"] == "borough"
+
+
+def test_get_forecast_empty_filter_spans_the_whole_horizon():
+    result, _, _ = dispatch_tool("get_forecast", {})
+    assert result["n_rows_after_filter"] > 0
+    assert result["total_predicted"] > 0
+    assert result["filters"]["group_by"] == "lsoa"  # schema default
+
+
+def test_get_forecast_unknown_city_returns_error_not_raise():
+    result, action, summary = dispatch_tool("get_forecast", {"city": "atlantis"})
+    assert action is None
+    assert "error" in result
+    assert "atlantis" in result["error"]
+
+
+def test_get_forecast_unknown_category_returns_no_rows():
+    result, _, _ = dispatch_tool(
+        "get_forecast", {"category": "Not A Real Category", "group_by": "category"}
+    )
+    assert result["rows"] == []
+    assert result["n_rows_after_filter"] == 0
+    assert result["total_predicted"] == 0.0
+
+
+def test_get_forecast_filters_by_borough_and_month():
+    # The spec's headline demo shape: a borough + a forecast month, ranked by LSOA.
+    # 2026-04 is the first month of the committed 1-year forecast horizon.
+    result, _, _ = dispatch_tool(
+        "get_forecast",
+        {"borough": "Camden", "month": "2026-04", "group_by": "lsoa", "top_n": 5},
+    )
+    rows = result["rows"]
+    assert rows, "Camden should have forecast LSOAs in 2026-04"
+    assert len(rows) <= 5
+    values = [r["predicted_crimes"] for r in rows]
+    assert values == sorted(values, reverse=True)
+    assert result["filters"]["borough"] == "Camden"
+    assert result["filters"]["month"] == "2026-04"
+
+
+# --------------------------------------------------------------------------- #
+# get_allocation (calls the shared allocation pipeline)
+# --------------------------------------------------------------------------- #
+
+# The default total_units (33000, matching the dashboard's DEFAULT_FILTERS.totalUnits)
+# is above the min-units feasibility floor (6 * ~5160 LSOAs = 30960), so the default
+# LP/Rawls solve returns a real ranking. A deliberately low total_units stays below the
+# floor to exercise the infeasible-warning path.
+_INFEASIBLE_UNITS = 10000
+
+
+def test_get_allocation_averaging_ranks_boroughs():
+    result, action, summary = dispatch_tool(
+        "get_allocation", {"model": "averaging", "group_by": "borough", "top_n": 5}
+    )
+    assert action is None
+    assert set(result) == {"rows", "model", "total_units", "infeasible_warning"}
+    assert result["model"] == "averaging"
+    assert result["infeasible_warning"] is None
+    rows = result["rows"]
+    assert 1 <= len(rows) <= 5
+    units = [r["units"] for r in rows]
+    assert units == sorted(units, reverse=True)  # ranked descending
+    assert all(r["key"] and "share" in r for r in rows)
+
+
+def test_get_allocation_lp_ranks_boroughs_at_the_default():
+    result, _, _ = dispatch_tool(
+        "get_allocation", {"model": "lp", "group_by": "borough", "top_n": 33}
+    )
+    assert result["model"] == "lp"
+    assert result["infeasible_warning"] is None
+    units = [r["units"] for r in result["rows"]]
+    assert len(units) > 1
+    assert units == sorted(units, reverse=True)
+
+
+def test_get_allocation_rawls_ranks_boroughs_at_the_default():
+    result, _, _ = dispatch_tool(
+        "get_allocation", {"model": "rawls", "group_by": "borough", "top_n": 33}
+    )
+    assert result["model"] == "rawls"
+    assert result["infeasible_warning"] is None
+    assert len(result["rows"]) > 1
+
+
+def test_get_allocation_lp_and_rawls_rankings_diverge():
+    lp, _, _ = dispatch_tool(
+        "get_allocation", {"model": "lp", "group_by": "borough", "top_n": 33}
+    )
+    rawls, _, _ = dispatch_tool(
+        "get_allocation", {"model": "rawls", "group_by": "borough", "top_n": 33}
+    )
+    lp_units = {r["key"]: r["units"] for r in lp["rows"]}
+    rawls_units = {r["key"]: r["units"] for r in rawls["rows"]}
+    diverging = [b for b in lp_units if abs(lp_units[b] - rawls_units.get(b, 0.0)) > 1.0]
+    assert diverging, "LP and Rawls should not produce identical allocations"
+
+
+def test_get_allocation_default_total_units_is_feasible():
+    # The default (33000) is above the feasibility floor, so the default LP answer is a
+    # real borough ranking — the spec's Phase 2 acceptance criterion.
+    result, action, _ = dispatch_tool("get_allocation", {"model": "lp", "group_by": "borough"})
+    assert action is None
+    assert result["total_units"] == 33000
+    assert result["infeasible_warning"] is None
+    assert len(result["rows"]) > 1
+
+
+def test_get_allocation_infeasibly_low_total_units_warns():
+    # Below the min-units floor both LP and Rawls are infeasible; the tool must surface a
+    # warning with no rows, never raise (Rawls used to crash with a TypeError here).
+    for model in ("lp", "rawls"):
+        result, action, _ = dispatch_tool(
+            "get_allocation",
+            {"model": model, "total_units": _INFEASIBLE_UNITS, "group_by": "borough"},
+        )
+        assert action is None
+        assert result["rows"] == []
+        assert result["infeasible_warning"]
+
+
+def test_get_allocation_non_london_city_returns_error():
+    result, action, _ = dispatch_tool("get_allocation", {"city": "manchester"})
     assert action is None
     assert "error" in result
 
@@ -429,16 +598,28 @@ def test_resolve_persona_maps_known_and_defaults_unknown():
     assert resolve_persona("nonsense") == "police"
 
 
-def test_shared_core_carries_the_deployment_and_forecast_guardrail():
-    core = chat_core._SHARED_CORE.lower()
-    # Deployment decision is routed to the human planner, not the assistant.
+def test_shared_core_keeps_the_deployment_guardrail():
+    # Phase 3 wires forecast/allocation tools in, but the deployment guardrail must
+    # survive verbatim: the assistant ranks and explains; a human planner decides.
+    # Whitespace is normalised so line-wrapping in the prompt doesn't hide the phrase.
+    core = " ".join(chat_core._SHARED_CORE.lower().split())
     assert "planner" in core
-    assert "deploy" in core
-    # The assistant must refuse to invent forecast / allocation numbers.
-    assert "forecast" in core
-    assert "allocation" in core
-    assert "never" in core
+    assert "never give an officer count" in core
+    assert "deploy n here" in core
     # The guardrail rides on the shared core, so every persona inherits it.
+    for persona in PERSONAS:
+        blocks = chat_core._system_blocks(None, persona)
+        assert blocks[0]["text"] == chat_core._SHARED_CORE
+
+
+def test_shared_core_advertises_forecast_and_allocation_tools():
+    # Inverted from the pre-Phase-3 guardrail: the "those tools are not connected to
+    # you yet" hedge is gone now that get_forecast / get_allocation are wired, and the
+    # new "you CAN look up" wording is present on every persona's shared core.
+    core = " ".join(chat_core._SHARED_CORE.lower().split())
+    assert "not connected to you yet" not in core
+    assert "cannot forecast future crime" not in core
+    assert "you can look up forecast figures and allocation rankings" in core
     for persona in PERSONAS:
         blocks = chat_core._system_blocks(None, persona)
         assert blocks[0]["text"] == chat_core._SHARED_CORE
