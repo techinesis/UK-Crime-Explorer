@@ -243,6 +243,24 @@ def resolve_persona(persona: str | None) -> str:
 POLICE_SYSTEM_PROMPT = f"{PERSONAS['police']['preamble']}\n\n{_SHARED_CORE}"
 
 
+# Appended to every persona's preamble (in _system_blocks) so each persona ends its
+# reply with clickable next-prompt suggestions. Kept out of the cached _SHARED_CORE so
+# the deployment guardrail there stays untouched.
+_FOLLOW_UPS_INSTRUCTION = (
+    "\n\nAt the very end of your response, on a new line, emit a `<follow_ups>` block "
+    "listing 1 to 3 short suggested next prompts the user might want to ask, one per "
+    "line, each starting with `- `. Do not number them. Do not say \"you could ask\"; "
+    "just the prompt text. Example:\n"
+    "<follow_ups>\n"
+    "- Compare with the median CCHI view\n"
+    "- Filter to last quarter\n"
+    "- Show the preventability ranking instead\n"
+    "</follow_ups>\n"
+    "Only include this block on responses where there is a sensible next step the user "
+    "might take."
+)
+
+
 # --------------------------------------------------------------------------- #
 # Tool definitions (Anthropic tool-use schema)
 # --------------------------------------------------------------------------- #
@@ -412,6 +430,14 @@ TOOLS: list[dict[str, Any]] = [
                     "enum": ["lsoa", "borough", "category", "month"],
                     "default": "lsoa",
                 },
+                "include_actual": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Include actual_crimes alongside predicted_crimes for each row, "
+                        "and add a MAPE summary if both are populated."
+                    ),
+                },
             },
             "additionalProperties": False,
         },
@@ -442,6 +468,29 @@ TOOLS: list[dict[str, Any]] = [
                     "default": "borough",
                 },
                 "top_n": {"type": "integer", "default": 10},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "set_allocation_params",
+        "description": (
+            "Update the dashboard's allocation parameters on the user's behalf. Use when "
+            "the user wants to change how the allocation is computed — pick a model, set "
+            "the total budget, adjust the LP weights, or change the fairness floor. Only "
+            "include the fields you want to change. Returns the params that were applied."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string"},
+                "model": {"type": "string", "enum": ["baseline", "lp", "rawls"]},
+                "total_units": {"type": "integer", "minimum": 1},
+                "alpha": {"type": "number", "minimum": 0, "maximum": 1},
+                "beta": {"type": "number", "minimum": 0, "maximum": 1},
+                "max_cap_factor": {"type": "number", "minimum": 1},
+                "equity_floor": {"type": "number", "minimum": 0, "maximum": 1},
+                "min_units_per_lsoa": {"type": "integer", "minimum": 0},
             },
             "additionalProperties": False,
         },
@@ -796,10 +845,16 @@ def tool_get_forecast(args: dict[str, Any]) -> tuple[dict[str, Any], None, str]:
     except (TypeError, ValueError):
         top_n = 10
     top_n = max(1, min(top_n, 200))
+    include_actual = bool(args.get("include_actual"))
 
     df = get_forecast_raw(city)
 
-    applied: dict[str, Any] = {"city": city, "group_by": group_by, "top_n": top_n}
+    applied: dict[str, Any] = {
+        "city": city,
+        "group_by": group_by,
+        "top_n": top_n,
+        "include_actual": include_actual,
+    }
     mask = pd.Series(True, index=df.index)
     if args.get("lsoa_code"):
         code = str(args["lsoa_code"]).strip()
@@ -825,31 +880,71 @@ def tool_get_forecast(args: dict[str, Any]) -> tuple[dict[str, Any], None, str]:
 
     if n_rows:
         col = _FORECAST_GROUP_COL[group_by]
-        grouped = (
-            filtered.groupby(col, as_index=False)["predicted_crimes"]
-            .sum()
-            .sort_values("predicted_crimes", ascending=False)
-            .head(top_n)
-            .rename(columns={col: "key"})
-        )
-        rows = [
-            {"key": str(r.key), "predicted_crimes": round(float(r.predicted_crimes), 2)}
-            for r in grouped.itertuples(index=False)
-        ]
+        if include_actual:
+            # ``sum(min_count=1)`` keeps an all-NaN group as NaN (-> null) rather
+            # than collapsing "no actual data" to a misleading 0.
+            grouped = (
+                filtered.groupby(col, as_index=False)
+                .agg(
+                    predicted_crimes=("predicted_crimes", "sum"),
+                    actual_crimes=("actual_crimes", lambda s: s.sum(min_count=1)),
+                )
+                .sort_values("predicted_crimes", ascending=False)
+                .head(top_n)
+                .rename(columns={col: "key"})
+            )
+            rows = []
+            for r in grouped.itertuples(index=False):
+                actual = float(r.actual_crimes) if pd.notna(r.actual_crimes) else None
+                rows.append(
+                    {
+                        "key": str(r.key),
+                        "predicted_crimes": round(float(r.predicted_crimes), 2),
+                        "actual_crimes": round(actual, 2) if actual is not None else None,
+                    }
+                )
+        else:
+            grouped = (
+                filtered.groupby(col, as_index=False)["predicted_crimes"]
+                .sum()
+                .sort_values("predicted_crimes", ascending=False)
+                .head(top_n)
+                .rename(columns={col: "key"})
+            )
+            rows = [
+                {"key": str(r.key), "predicted_crimes": round(float(r.predicted_crimes), 2)}
+                for r in grouped.itertuples(index=False)
+            ]
     else:
         rows = []
 
-    result = {
+    # MAPE over the returned rows that have a positive actual (skip future months,
+    # where actuals are absent, and zero-actual rows, where the percentage is undefined).
+    mape: float | None = None
+    if include_actual:
+        pct_errors = [
+            abs(row["actual_crimes"] - row["predicted_crimes"]) / row["actual_crimes"]
+            for row in rows
+            if row["actual_crimes"] is not None and row["actual_crimes"] > 0
+        ]
+        if pct_errors:
+            mape = round(sum(pct_errors) / len(pct_errors) * 100, 2)
+
+    result: dict[str, Any] = {
         "rows": rows,
         "filters": applied,
         "total_predicted": round(total, 2),
         "n_rows_after_filter": n_rows,
     }
+    if include_actual:
+        result["mape"] = mape
     summary = (
         f"forecast by {group_by}: {len(rows)} row(s), total~{round(total, 1)}"
         if rows
         else f"forecast by {group_by}: no rows matched"
     )
+    if include_actual and mape is not None:
+        summary += f", MAPE~{mape}%"
     return result, None, summary
 
 
@@ -941,6 +1036,83 @@ def tool_get_allocation(args: dict[str, Any]) -> tuple[dict[str, Any], None, str
     return result, None, summary
 
 
+# Allocation models the dashboard understands. Note this is the *frontend* set
+# ("baseline" = the proportional averaging model); get_allocation's compute side
+# names that same model "averaging". set_allocation_params only sets dashboard
+# state, so it speaks the frontend's vocabulary.
+_ALLOC_MODELS: frozenset[str] = frozenset({"baseline", "lp", "rawls"})
+
+
+def _clamp(value: float, lo: float | None, hi: float | None) -> float:
+    """Clamp ``value`` into ``[lo, hi]`` (either bound optional)."""
+    if lo is not None:
+        value = max(lo, value)
+    if hi is not None:
+        value = min(hi, value)
+    return value
+
+
+def tool_set_allocation_params(
+    args: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Push allocation-parameter changes to the dashboard. Returns (llm_result, action, summary).
+
+    Emits a ``set_allocation_params`` action the frontend maps onto the same
+    ``useFilters`` allocation state the sliders write to (one source of truth), so
+    the chat and the slider UI never diverge. Only the fields the model supplied are
+    included; numerics are clamped to the schema bounds and ``model`` is validated
+    against the dashboard's set (unknown model -> error result so the model recovers).
+    """
+    params: dict[str, Any] = {}
+
+    if args.get("city"):
+        params["city"] = str(args["city"]).strip()
+
+    if args.get("model") is not None:
+        model = str(args["model"]).strip().lower()
+        if model not in _ALLOC_MODELS:
+            msg = (
+                f"unknown allocation model {args['model']!r}; "
+                f"expected one of {sorted(_ALLOC_MODELS)}"
+            )
+            return {"error": msg}, None, msg
+        params["model"] = model
+
+    if args.get("total_units") is not None:
+        try:
+            params["total_units"] = max(1, int(args["total_units"]))
+        except (TypeError, ValueError):
+            pass
+
+    for key in ("alpha", "beta", "equity_floor"):
+        if args.get(key) is not None:
+            try:
+                params[key] = _clamp(float(args[key]), 0.0, 1.0)
+            except (TypeError, ValueError):
+                pass
+
+    if args.get("max_cap_factor") is not None:
+        try:
+            params["max_cap_factor"] = _clamp(float(args["max_cap_factor"]), 1.0, None)
+        except (TypeError, ValueError):
+            pass
+
+    if args.get("min_units_per_lsoa") is not None:
+        try:
+            params["min_units_per_lsoa"] = max(0, int(args["min_units_per_lsoa"]))
+        except (TypeError, ValueError):
+            pass
+
+    action = {"type": "set_allocation_params", "params": params}
+    result = {"applied": params}
+    summary = (
+        "allocation params: " + ", ".join(f"{k}={v}" for k, v in params.items())
+        if params
+        else "allocation params: no changes"
+    )
+    return result, action, summary
+
+
 _TOOL_DISPATCH: dict[str, Callable[..., tuple[dict[str, Any], dict[str, Any] | None, str]]] = {
     "set_filters": tool_set_filters,
     "query_data": tool_query_data,
@@ -948,6 +1120,7 @@ _TOOL_DISPATCH: dict[str, Callable[..., tuple[dict[str, Any], dict[str, Any] | N
     "read_docs": tool_read_docs,
     "get_forecast": tool_get_forecast,
     "get_allocation": tool_get_allocation,
+    "set_allocation_params": tool_set_allocation_params,
 }
 
 
@@ -1201,7 +1374,7 @@ def _system_blocks(
         },
         {
             "type": "text",
-            "text": PERSONAS[persona_id]["preamble"],
+            "text": PERSONAS[persona_id]["preamble"] + _FOLLOW_UPS_INSTRUCTION,
         },
     ]
     if current_filters:
@@ -1245,7 +1418,8 @@ def run_chat_stream(
 
     Yields event dicts (consumed by the SSE route and the frontend):
     * ``{"type": "text", "text": <delta>}`` — a chunk of the assistant's reply.
-    * ``{"type": "tool_call", "name", "args", "result_summary"}`` — an audit record.
+    * ``{"type": "tool_call", "name", "args", "result_summary", "output"}`` — an audit
+      record; ``output`` is the tool's full return value (what the model saw).
     * ``{"type": "action", "action": {"type": "set_filters", "payload": {...}}}``.
     * ``{"type": "done"}`` — terminal event.
     """
@@ -1284,7 +1458,13 @@ def run_chat_stream(
             name = _block_attr(tu, "name")
             args = _block_attr(tu, "input") or {}
             result, action, summary = dispatch_tool(name, args, default_city=default_city)
-            yield {"type": "tool_call", "name": name, "args": args, "result_summary": summary}
+            yield {
+                "type": "tool_call",
+                "name": name,
+                "args": args,
+                "result_summary": summary,
+                "output": result,
+            }
             if action is not None:
                 yield {"type": "action", "action": action}
             tool_results.append(
@@ -1332,6 +1512,7 @@ def run_chat(
                     "name": event["name"],
                     "args": event["args"],
                     "result_summary": event["result_summary"],
+                    "output": event.get("output"),
                 }
             )
         elif kind == "action":

@@ -21,26 +21,46 @@ import type { Level, MapRequest, Metric, SeverityBasis } from '../lib/types'
 import { CITIES } from '../hooks/useFilters'
 import type { FilterState } from '../hooks/useFilters'
 import ChatMarkdown from './ChatMarkdown'
+import FilterContextPills from './FilterContextPills'
 
 // --- Wire types (mirror backend/api/chat.py) ------------------------------- //
 
 type ChatActionPayload = Partial<MapRequest>
 
-interface ChatAction {
-  type: 'set_filters'
-  payload: ChatActionPayload
+/** Allocation params the chat can push onto the dashboard (snake_case, from the
+ *  set_allocation_params tool). Only the fields the model set are present. */
+interface ChatAllocationParams {
+  city?: string
+  model?: string
+  total_units?: number
+  alpha?: number
+  beta?: number
+  max_cap_factor?: number
+  equity_floor?: number
+  min_units_per_lsoa?: number
 }
+
+type ChatAction =
+  | { type: 'set_filters'; payload: ChatActionPayload }
+  | { type: 'set_allocation_params'; params: ChatAllocationParams }
 
 interface ToolCallAudit {
   name: string
   args: Record<string, unknown>
   result_summary: string
+  output?: unknown
 }
 
 /** SSE event shapes streamed by POST /api/chat. */
 type StreamEvent =
   | { type: 'text'; text: string }
-  | { type: 'tool_call'; name: string; args: Record<string, unknown>; result_summary: string }
+  | {
+      type: 'tool_call'
+      name: string
+      args: Record<string, unknown>
+      result_summary: string
+      output?: unknown
+    }
   | { type: 'action'; action: ChatAction }
   | { type: 'done' }
   | { type: 'error'; error?: string }
@@ -49,6 +69,7 @@ interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
   toolCalls?: ToolCallAudit[]
+  followUps?: string[]
   ts: number
 }
 
@@ -110,7 +131,9 @@ function loadPersona(): Persona {
 // sessionStorage (NOT localStorage): the transcript survives a tab reload but is
 // discarded when the tab closes. One key per persona keeps voices isolated.
 
-const TRANSCRIPT_SCHEMA_VERSION = 1
+// Bumped to 2 when tool-call audits gained `output` and turns gained `followUps`
+// (chat improvements): a stale v1 transcript from a prior tab is discarded cleanly.
+const TRANSCRIPT_SCHEMA_VERSION = 2
 const turnsKey = (persona: Persona): string => `crime-chat-turns:${persona}`
 
 interface StoredTranscript {
@@ -196,6 +219,106 @@ function actionToFilterPatch(payload: ChatActionPayload): Partial<FilterState> {
   if ('severity_basis' in payload) patch.severityBasis = payload.severity_basis as SeverityBasis
   return patch
 }
+
+const ALLOCATION_MODELS_SET = new Set(['lp', 'rawls', 'baseline'])
+
+/**
+ * set_allocation_params action params (snake_case) → the filter-hook patch
+ * (camelCase allocation fields). Mirrors actionToFilterPatch — only the keys the
+ * assistant set carry through, and both the chat and the sliders write the same
+ * useFilters state, so the two surfaces never diverge.
+ */
+function actionToAllocationPatch(params: ChatAllocationParams): Partial<FilterState> {
+  const patch: Partial<FilterState> = {}
+  if (params.city) {
+    const canonical = CITIES.find((c) => c.toLowerCase() === String(params.city).toLowerCase())
+    if (canonical) patch.city = canonical
+  }
+  if (params.model && ALLOCATION_MODELS_SET.has(params.model)) {
+    patch.allocationModel = params.model as FilterState['allocationModel']
+  }
+  if (typeof params.total_units === 'number') patch.totalUnits = params.total_units
+  if (typeof params.alpha === 'number') patch.allocAlpha = params.alpha
+  if (typeof params.beta === 'number') patch.allocBeta = params.beta
+  if (typeof params.max_cap_factor === 'number') patch.allocMaxCapFactor = params.max_cap_factor
+  if (typeof params.equity_floor === 'number') patch.allocEquityFloor = params.equity_floor
+  if (typeof params.min_units_per_lsoa === 'number') {
+    patch.allocMinUnitsPerLsoa = params.min_units_per_lsoa
+  }
+  return patch
+}
+
+/**
+ * Pull a trailing `<follow_ups>` block off the assistant's content. Only a block at
+ * the very END of the message is treated as suggestions; a `<follow_ups>` anywhere
+ * else survives as literal text. Returns the stripped content and up to 3 prompts.
+ */
+function parseFollowUps(content: string): { content: string; followUps: string[] } {
+  const match = content.match(/\n*<follow_ups>\s*([\s\S]*?)\s*<\/follow_ups>\s*$/i)
+  if (match?.index === undefined) return { content, followUps: [] }
+  const followUps = match[1]
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('-'))
+    .map((line) => line.replace(/^-\s*/, '').trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 3)
+  return { content: content.slice(0, match.index).trimEnd(), followUps }
+}
+
+const BADGE_MAX_ROWS = 50
+const BADGE_MAX_CHARS = 5120 // 5 KB
+
+/** Recursively cap any array at BADGE_MAX_ROWS, leaving a count marker behind. */
+function truncateArrays(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const rows = value.length > BADGE_MAX_ROWS ? value.slice(0, BADGE_MAX_ROWS) : value
+    const mapped = rows.map(truncateArrays)
+    if (value.length > BADGE_MAX_ROWS) {
+      mapped.push(`… ${value.length - BADGE_MAX_ROWS} more rows truncated`)
+    }
+    return mapped
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = truncateArrays(v)
+    return out
+  }
+  return value
+}
+
+/** Pretty-print a tool input/output for the audit badge, truncating big arrays and
+ *  capping the total stringified size so query_data dumps stay readable. */
+function truncateForBadge(value: unknown): string {
+  let json = JSON.stringify(truncateArrays(value), null, 2)
+  if (json === undefined) return String(value)
+  if (json.length > BADGE_MAX_CHARS) json = json.slice(0, BADGE_MAX_CHARS) + '\n… truncated'
+  return json
+}
+
+// The /help response is intercepted client-side (no backend call). Keep this blurb in
+// sync with the tool registry — update when adding a tool to the registry.
+const HELP_MARKDOWN = `**What I can do**
+
+I am the dashboard's assistant. I have seven tools that read from the same data the map and the allocation page use:
+
+- **set_filters** — update the map's view (categories, borough, year, level, severity basis, …)
+- **set_allocation_params** — change the allocation model or its parameters
+- **query_data** — answer a data question (rank places, categories, or time periods)
+- **get_weights** — read the category weights table (CCHI severity, preventability multipliers, literature anchors)
+- **read_docs** — explain methodology questions from the project's own documentation
+- **get_forecast** — look up predicted crime counts (optionally with actuals + MAPE)
+- **get_allocation** — compute or look up the LP / Rawls / averaging allocation ranking
+
+I have three **personas** with their own tone: Police planner, Examiner, Community member. The data is the same; only the voice changes. Switch via the dropdown above.
+
+I **never** prescribe officer counts or deployments. I rank and explain; the planner makes the call.`
+
+const HELP_FOLLOWUPS = [
+  'Walk me through this map',
+  'Switch to the Examiner persona',
+  'What does the LP allocation say for Camden',
+]
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -331,7 +454,12 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
             ...t,
             toolCalls: [
               ...(t.toolCalls ?? []),
-              { name: event.name, args: event.args, result_summary: event.result_summary },
+              {
+                name: event.name,
+                args: event.args,
+                result_summary: event.result_summary,
+                output: event.output,
+              },
             ],
           }))
           break
@@ -339,11 +467,18 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
           if (event.action) bufferedActions.push(event.action)
           break
         case 'done':
-          // Apply navigation actions only after the reply text has rendered.
+          // Apply navigation/allocation actions only after the reply text has rendered.
           for (const action of bufferedActions) {
             if (action.type === 'set_filters') update(actionToFilterPatch(action.payload))
+            else if (action.type === 'set_allocation_params')
+              update(actionToAllocationPatch(action.params))
           }
           bufferedActions.length = 0
+          // Lift any trailing <follow_ups> block out of the content into pills.
+          updateStreamingTurn((t) => {
+            const { content, followUps } = parseFollowUps(t.content)
+            return { ...t, content, followUps }
+          })
           break
         case 'error':
           setError(event.error || 'The assistant hit an error.')
@@ -418,6 +553,26 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
   function submit(text: string) {
     const trimmed = text.trim()
     if (!trimmed || isStreaming) return
+
+    // `/help` is answered locally — no backend round trip — with a canned blurb
+    // rendered through the same markdown path and a few curated starter pills.
+    if (trimmed === '/help') {
+      const now = Date.now()
+      setTurns((prev) => [
+        ...prev,
+        { role: 'user', content: trimmed, ts: now },
+        {
+          role: 'assistant',
+          content: HELP_MARKDOWN,
+          toolCalls: [],
+          followUps: HELP_FOLLOWUPS,
+          ts: now + 1,
+        },
+      ])
+      setShowContinued(false)
+      setInput('')
+      return
+    }
 
     const userTurn: ChatTurn = { role: 'user', content: trimmed, ts: Date.now() }
     const history = [...turns, userTurn]
@@ -554,6 +709,8 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
             streaming={isStreaming && index === turns.length - 1 && turn.role === 'assistant'}
             canRegenerate={!isStreaming && index === lastAssistantIndex && !!turn.content}
             onRegenerate={regenerate}
+            onFollowUp={submit}
+            followUpsDisabled={isStreaming}
           />
         ))}
 
@@ -561,6 +718,9 @@ export default function ChatPanel({ open, onClose, filters, update }: ChatPanelP
           <div className="rounded-md bg-red-900/20 px-3 py-2 text-xs text-red-400">{error}</div>
         )}
       </div>
+
+      {/* Currently-applied dashboard filters the chat is reasoning about */}
+      <FilterContextPills filters={filters} />
 
       {/* Input */}
       <form
@@ -600,9 +760,18 @@ interface MessageProps {
   streaming: boolean
   canRegenerate: boolean
   onRegenerate: () => void
+  onFollowUp: (text: string) => void
+  followUpsDisabled: boolean
 }
 
-function Message({ turn, streaming, canRegenerate, onRegenerate }: MessageProps) {
+function Message({
+  turn,
+  streaming,
+  canRegenerate,
+  onRegenerate,
+  onFollowUp,
+  followUpsDisabled,
+}: MessageProps) {
   const isUser = turn.role === 'user'
   const [copied, setCopied] = useState(false)
 
@@ -650,15 +819,46 @@ function Message({ turn, streaming, canRegenerate, onRegenerate }: MessageProps)
         )}
 
         {turn.toolCalls && turn.toolCalls.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1 border-t border-border/50 pt-2">
+          <div className="mt-2 space-y-1 border-t border-border/50 pt-2">
             {turn.toolCalls.map((call, i) => (
-              <span
+              <details
                 key={i}
-                title={call.result_summary}
-                className="rounded-full bg-card px-2 py-0.5 text-[10px] text-muted"
+                className="rounded border border-border bg-card px-2 py-1 text-[11px]"
               >
-                🔧 {call.name} · {call.result_summary}
-              </span>
+                <summary className="cursor-pointer text-muted">
+                  🔧 Tool · {call.name}
+                </summary>
+                <div className="mt-2 space-y-2">
+                  <div>
+                    <div className="text-[10px] uppercase text-muted">input</div>
+                    <pre className="overflow-x-auto rounded bg-slate-900 p-2 text-[11px] text-slate-100">
+                      {truncateForBadge(call.args)}
+                    </pre>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-muted">output</div>
+                    <pre className="overflow-x-auto rounded bg-slate-900 p-2 text-[11px] text-slate-100">
+                      {truncateForBadge(call.output)}
+                    </pre>
+                  </div>
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+
+        {!isUser && !streaming && turn.followUps && turn.followUps.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {turn.followUps.map((prompt, i) => (
+              <button
+                key={i}
+                type="button"
+                disabled={followUpsDisabled}
+                onClick={() => onFollowUp(prompt)}
+                className="rounded-full border border-border bg-surface px-2.5 py-1 text-[11px] text-fg hover:border-accent disabled:opacity-40"
+              >
+                {prompt}
+              </button>
             ))}
           </div>
         )}

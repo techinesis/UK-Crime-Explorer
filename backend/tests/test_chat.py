@@ -39,6 +39,7 @@ from core.chat import (
     tool_query_data,
     tool_set_filters,
 )
+from core import data as data_core
 from core.data import KNOWN_CITIES
 
 
@@ -107,6 +108,7 @@ def test_tool_registry_has_all_tools():
         "read_docs",
         "get_forecast",
         "get_allocation",
+        "set_allocation_params",
     }
 
 
@@ -498,6 +500,54 @@ def test_get_forecast_filters_by_borough_and_month():
     assert result["filters"]["month"] == "2026-04"
 
 
+def test_get_forecast_without_include_actual_keeps_the_legacy_shape():
+    # Default path is unchanged: no actual_crimes on rows, no top-level mape.
+    result, _, _ = dispatch_tool("get_forecast", {"group_by": "borough", "top_n": 3})
+    assert "mape" not in result
+    assert all("actual_crimes" not in row for row in result["rows"])
+    assert result["filters"]["include_actual"] is False
+
+
+def test_get_forecast_include_actual_round_trip(tmp_path, monkeypatch):
+    # A tiny past-month fixture (actuals present) drives the merge + MAPE math
+    # deterministically: |8-10|/8 = 0.25, |25-20|/25 = 0.20 -> mean 0.225 -> 22.5%.
+    csv_path = tmp_path / "forecast.csv"
+    csv_path.write_text(
+        "Month,LSOA code,Crime type,predicted_crimes,actual_crimes\n"
+        "2024-01,E01000001,Burglary,10,8\n"
+        "2024-01,E01000002,Burglary,20,25\n"
+    )
+    monkeypatch.setattr(data_core, "FORECAST_CSV", csv_path)
+    data_core.get_forecast_raw.cache_clear()
+    try:
+        result, _, summary = dispatch_tool(
+            "get_forecast",
+            {"city": "london", "group_by": "lsoa", "top_n": 10, "include_actual": True},
+        )
+        rows = {r["key"]: r for r in result["rows"]}
+        assert rows["E01000001"]["actual_crimes"] == 8.0
+        assert rows["E01000002"]["actual_crimes"] == 25.0
+        assert rows["E01000001"]["predicted_crimes"] == 10.0
+        assert result["mape"] == pytest.approx(22.5)
+        assert "MAPE" in summary
+    finally:
+        data_core.get_forecast_raw.cache_clear()
+
+
+def test_get_forecast_include_actual_is_null_for_future_horizon():
+    # The committed forecast is forward-looking (no actuals), so every actual is null
+    # and MAPE is null — the "forecasting a future month" case from the spec.
+    result, _, _ = dispatch_tool(
+        "get_forecast",
+        {"city": "london", "group_by": "borough", "top_n": 5, "include_actual": True},
+    )
+    assert result["filters"]["include_actual"] is True
+    assert result["mape"] is None
+    assert result["rows"], "the forward forecast should still rank boroughs"
+    assert all(row["actual_crimes"] is None for row in result["rows"])
+    assert all(row["predicted_crimes"] >= 0 for row in result["rows"])
+
+
 # --------------------------------------------------------------------------- #
 # get_allocation (calls the shared allocation pipeline)
 # --------------------------------------------------------------------------- #
@@ -587,6 +637,60 @@ def test_get_allocation_non_london_city_returns_error():
 
 
 # --------------------------------------------------------------------------- #
+# set_allocation_params (emits a dashboard action; no allocation compute)
+# --------------------------------------------------------------------------- #
+
+
+def test_set_allocation_params_emits_action_with_applied_params():
+    result, action, summary = dispatch_tool(
+        "set_allocation_params",
+        {"model": "lp", "alpha": 0.4, "beta": 0.3, "equity_floor": 0.8},
+    )
+    assert action == {
+        "type": "set_allocation_params",
+        "params": {"model": "lp", "alpha": 0.4, "beta": 0.3, "equity_floor": 0.8},
+    }
+    assert result["applied"] == action["params"]
+    assert "alpha=0.4" in summary
+
+
+def test_set_allocation_params_only_includes_provided_fields():
+    _, action, _ = dispatch_tool("set_allocation_params", {"total_units": 40000})
+    assert action["params"] == {"total_units": 40000}
+
+
+def test_set_allocation_params_clamps_out_of_range_values():
+    _, action, _ = dispatch_tool(
+        "set_allocation_params",
+        {
+            "alpha": 1.5,
+            "equity_floor": -0.2,
+            "max_cap_factor": 0.5,
+            "total_units": 0,
+            "min_units_per_lsoa": -3,
+        },
+    )
+    params = action["params"]
+    assert params["alpha"] == 1.0
+    assert params["equity_floor"] == 0.0
+    assert params["max_cap_factor"] == 1.0
+    assert params["total_units"] == 1
+    assert params["min_units_per_lsoa"] == 0
+
+
+def test_set_allocation_params_rejects_unknown_model():
+    result, action, _ = dispatch_tool("set_allocation_params", {"model": "genetic"})
+    assert action is None
+    assert "error" in result
+    assert "genetic" in result["error"]
+
+
+def test_set_allocation_params_is_registered_in_the_tool_schema():
+    names = {t["name"] for t in TOOLS}
+    assert "set_allocation_params" in names
+
+
+# --------------------------------------------------------------------------- #
 # Personas
 # --------------------------------------------------------------------------- #
 
@@ -632,10 +736,21 @@ def test_system_blocks_swap_persona_but_keep_a_stable_cached_core():
     # personas (so switching persona still hits the cache).
     assert police[0]["cache_control"] == {"type": "ephemeral"}
     assert police[0]["text"] == examiner[0]["text"]
-    # Second block is the persona preamble — and it differs.
-    assert police[1]["text"] == PERSONAS["police"]["preamble"]
-    assert examiner[1]["text"] == PERSONAS["examiner"]["preamble"]
+    # Second block is the persona preamble (+ the shared follow-ups instruction) — the
+    # persona-specific part leads and the personas still differ.
+    assert police[1]["text"].startswith(PERSONAS["police"]["preamble"])
+    assert examiner[1]["text"].startswith(PERSONAS["examiner"]["preamble"])
+    assert "<follow_ups>" in police[1]["text"]
     assert police[1]["text"] != examiner[1]["text"]
+
+
+def test_every_persona_gets_the_follow_ups_instruction():
+    # The follow-ups directive is appended to every persona's preamble block (not the
+    # cached shared core), so all three personas end their replies with suggestions.
+    for persona in PERSONAS:
+        blocks = chat_core._system_blocks(None, persona)
+        assert blocks[1]["text"].startswith(PERSONAS[persona]["preamble"])
+        assert "<follow_ups>" in blocks[1]["text"]
 
 
 # --------------------------------------------------------------------------- #
@@ -668,6 +783,32 @@ def test_run_chat_query_flow_returns_grounded_text_and_audit():
     follow_up = client.messages.calls[1]["messages"][-1]
     assert follow_up["role"] == "user"
     assert follow_up["content"][0]["type"] == "tool_result"
+
+
+def test_tool_call_audit_carries_the_full_output_for_the_badge():
+    # The expandable audit badge needs the tool's return value, so both the streamed
+    # tool_call event and the assembled run_chat audit record now carry ``output``.
+    client = FakeClient(
+        [
+            _tool_turn("t1", "get_weights", {}),
+            _text_turn("Here are the category weights."),
+        ]
+    )
+    events = list(
+        run_chat_stream([{"role": "user", "content": "show me the weights"}], client=client)
+    )
+    streamed = next(e for e in events if e["type"] == "tool_call")
+    assert streamed["name"] == "get_weights"
+    assert "categories" in streamed["output"]
+
+    client2 = FakeClient(
+        [
+            _tool_turn("t1", "get_weights", {}),
+            _text_turn("Here are the category weights."),
+        ]
+    )
+    result = run_chat([{"role": "user", "content": "show me the weights"}], client=client2)
+    assert result["tool_calls"][0]["output"]["categories"]
 
 
 def test_run_chat_set_filters_flow_produces_an_action():
@@ -752,7 +893,7 @@ def test_stream_passes_persona_into_the_system_prompt():
     client = FakeClient([_text_turn("hi")])
     list(run_chat_stream([{"role": "user", "content": "hello"}], client=client, persona="examiner"))
     system = client.messages.calls[0]["system"]
-    assert system[1]["text"] == PERSONAS["examiner"]["preamble"]
+    assert system[1]["text"].startswith(PERSONAS["examiner"]["preamble"])
 
 
 def test_stream_threads_the_current_view_city_into_tool_dispatch(monkeypatch):

@@ -5,10 +5,16 @@
 > (see the changelog at the bottom); scripts that failed twice were rewritten
 > and re-tested. Run the scripts in order — they build on each other.
 >
-> **Phase 3 status: not applicable.** The `get_forecast` and `get_allocation`
-> chat tools are not on `main` (verified in `backend/core/chat.py` on
-> 2026-06-11), so there are no forecast/allocation scripts. The assistant
-> will say so itself if asked — that is intentional (see Script 4).
+> **Status (2026-06-17 chat-improvements pass):** the `get_forecast` and
+> `get_allocation` tools have since landed on `main`, and this change set adds
+> chat-UI improvements that change what each script looks like on screen:
+> **click-to-expand audit badges** (each badge opens to the tool's input and
+> output as JSON), **follow-up prompt pills** under each answer, a
+> **currently-applied-filters pill bar** above the chat input, and a `/help`
+> command. The four scripts below still cover all three modes, all three
+> personas, and the guardrail; each script's **What to expect** field now notes
+> the new UI where it appears. These improvements are **not yet deployed**, so
+> the post-improvements re-test is **pending** — see the changelog.
 
 ---
 
@@ -91,10 +97,16 @@ the preventability source, usually with concrete example weights. Under
 the reply: **`read_docs` audit badges (typically 2–3)** and **usually a
 `get_weights` badge** (it appeared in 2 of 3 test runs — don't promise it
 aloud, point at whichever badges are there).
+*New in this pass:* each audit badge is now **click-to-expand** — open one to
+reveal the exact tool input and the raw output JSON it returned. After the
+answer, **follow-up pills** appear (tap one to send it as the next question),
+and the **filter pill bar** above the input shows the demo baseline
+(*London · All categories · All boroughs · All time · LSOA*).
 
 **What to say while it streams:**
 "Notice the badges appearing underneath. Every quantitative claim comes
-from a tool call against our own data — the chat can't invent numbers."
+from a tool call against our own data — the chat can't invent numbers.
+Click one open and you can read the exact data it pulled."
 
 **Fallback:**
 If the response is thin or no badges appear, type:
@@ -129,6 +141,10 @@ the **severity basis toggle** (Mean/Median in the sidebar) for a
 typical-case ranking. A **`get_weights`** badge appears under the reply.
 It cites "CCHI 2020"; the full *Sherman, Neyroud & Neyroud* citation
 appeared in only 1 of 3 test runs, so don't promise the authors aloud.
+*New in this pass:* open the **`get_weights`** badge to show the severity /
+preventability table JSON behind the numbers — the examiner can verify the
+mean/median values directly. **Follow-up pills** follow the answer (often a
+"compare under median CCHI" style suggestion).
 
 **What to say while it streams:**
 "This is the kind of question we built the chat for — the numbers it's
@@ -169,11 +185,16 @@ months=[1, 2, 3], borough=Camden`), and — the moment the reply finishes —
 the sidebar flips (Robbery checked, Year 2024, Borough Camden) and the
 map redraws to Camden's robbery pattern (~420 incidents that quarter, so
 the choropleth is clearly visible).
+*New in this pass:* the **`set_filters`** badge expands to show the change as
+JSON (the tool input and the applied output), and — the cleanest visual — the
+**filter pill bar above the input updates live** to
+*Camden · Robbery · 2024 · Jan–Mar · LSOA* the instant the filters apply,
+mirroring the sidebar. **Follow-up pills** appear after the confirmation.
 
 **What to say while it streams:**
-"Watch the left sidebar and the map — when this finishes, the chat
-applies the filters on its own. The badge will show exactly what it
-changed; nothing is hidden."
+"Watch the left sidebar, the map, and the filter pills above the box — when
+this finishes, the chat applies the filters on its own and the pills update to
+match. The badge will show exactly what it changed; nothing is hidden."
 
 **Fallback:**
 - If the map narrows but the **Borough still says "All boroughs"** (a
@@ -224,6 +245,10 @@ human planners/leadership, and an **offer to show the composite ranking**
 for Westminster instead — usually as a numbered list of options. **No
 tool badges** (it answers without calling anything), and **no number of
 officers anywhere**. This behaviour was 3-for-3 in testing.
+*New in this pass:* still **no tool badges** (nothing to expand). **Follow-up
+pills** may still appear (e.g. a "show the composite ranking for Westminster"
+suggestion — a natural, safe next step), and the **filter pill bar** above the
+input keeps showing the current dashboard state throughout the refusal.
 
 **What to say while it streams:**
 "We built the chat to explicitly refuse this — it offers the demand
@@ -286,3 +311,26 @@ stage, deviation noted), **fail** (demo beat broken).
 | 4 — The guardrail | 1 | 2026-06-11 | pass | Explicit refusal; decision routed to "you and your team"; offers composite ranking options; no officer count; no tool calls |
 | 4 — The guardrail | 2 | 2026-06-11 | pass | "I cannot tell you how many officers to send anywhere"; ranking offered; no count; no tools |
 | 4 — The guardrail | 3 | 2026-06-11 | pass | Same refusal shape, consistent 3/3 |
+
+### Pending: post-improvements re-test (after deploy)
+
+The rows above are real runs from **2026-06-11**, against the chat **before**
+this change set (expandable badges, follow-up pills, the filter pill bar,
+`/help`, the forecast-actuals and `set_allocation_params` tools). Those
+improvements are **not yet deployed**, so they have **not** been re-tested
+against production and **no rows are recorded for them here** — a changelog row
+must correspond to a real run against the deployed chat.
+
+To complete the re-test after merge + deploy:
+
+1. Disable Vercel Authentication (pre-flight step 1) and confirm
+   `/api/chat/health` → `{"configured": true}`.
+2. Run each of the four scripts **three times** against production; for each,
+   confirm the **What to expect** UI notes (expandable badge JSON, follow-up
+   pills, and — in Script 3 — the live filter pill bar).
+3. Append one row per run to the table above with a **pass / partial / fail**
+   verdict.
+4. Optionally spot-check the two new tools directly: ask *"set the LP weights to
+   alpha 0.4 beta 0.3 equity floor 0.8"* (the allocation page should update) and
+   *"show me the forecast for Camden next April with actuals"* (predicted +
+   actual columns; MAPE is null for a future month with no actuals).

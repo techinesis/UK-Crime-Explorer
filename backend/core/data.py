@@ -252,10 +252,13 @@ def get_forecast_raw(city: str) -> pd.DataFrame:
     raw["predicted_crimes"] = (
         pd.to_numeric(raw["predicted_crimes"], errors="coerce").fillna(0.0).clip(lower=0)
     )
+    # Keep missing/blank actuals as NaN (not 0.0): the get_forecast tool's
+    # include_actual path needs to tell "no actual recorded yet" (future months)
+    # apart from "genuinely zero crimes" for null-coercion and the MAPE summary.
     raw["actual_crimes"] = (
-        pd.to_numeric(raw.get("actual_crimes", 0.0), errors="coerce").fillna(0.0)
+        pd.to_numeric(raw["actual_crimes"], errors="coerce")
         if "actual_crimes" in raw.columns
-        else 0.0
+        else float("nan")
     )
 
     historical = get_crime_long(city)
