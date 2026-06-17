@@ -243,6 +243,11 @@ class RawlsModel(AllocationModel):
             method="highs",
         )
 
+        if res.status != 0 or res.x is None:
+            raise AllocationInfeasibleError(
+                f"Rawls allocation infeasible (status {res.status}: {res.message})"
+            )
+
         df[self.output_column] = res.x[:n]
 
         return df

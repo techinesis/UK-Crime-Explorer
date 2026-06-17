@@ -222,6 +222,57 @@ def get_forecast_long(city: str) -> pd.DataFrame:
     return combined
 
 
+@lru_cache(maxsize=4)
+def get_forecast_raw(city: str) -> pd.DataFrame:
+    """Per-(month, LSOA, category) forecast rows for chat lookups.
+
+    The mirror image of :func:`get_forecast_long`. That loader feeds the allocation
+    model, so it aggregates away the month dimension, renames ``predicted_crimes`` to
+    ``crime_count``, and back-fills *historical* counts for LSOAs absent from the
+    forecast. This loader instead keeps the raw ``month`` and ``predicted_crimes``
+    columns and does **no** aggregation and **no** historical fallback, so the chat's
+    ``get_forecast`` tool can answer month-specific questions. ``borough`` and
+    ``lsoa_name`` are joined from the historical meta (same join as
+    ``get_forecast_long``). The returned frame is memoised and shared — treat it as
+    read-only.
+    """
+    cols = [
+        "month", "lsoa_code", "category",
+        "predicted_crimes", "actual_crimes", "lsoa_name", "borough",
+    ]
+    if not FORECAST_CSV.exists():
+        return pd.DataFrame(columns=cols)
+
+    raw = pd.read_csv(FORECAST_CSV).rename(
+        columns={"Month": "month", "LSOA code": "lsoa_code", "Crime type": "category"}
+    )
+    raw["lsoa_code"] = raw["lsoa_code"].astype(str)
+    raw["month"] = raw["month"].astype(str)
+    raw["category"] = raw["category"].astype(str)
+    raw["predicted_crimes"] = (
+        pd.to_numeric(raw["predicted_crimes"], errors="coerce").fillna(0.0).clip(lower=0)
+    )
+    raw["actual_crimes"] = (
+        pd.to_numeric(raw.get("actual_crimes", 0.0), errors="coerce").fillna(0.0)
+        if "actual_crimes" in raw.columns
+        else 0.0
+    )
+
+    historical = get_crime_long(city)
+    lsoa_meta = (
+        historical.assign(lsoa_code=historical["lsoa_code"].astype(str))[
+            ["lsoa_code", "lsoa_name", "borough"]
+        ]
+        .drop_duplicates(subset="lsoa_code")
+        .reset_index(drop=True)
+    )
+    lsoa_meta["lsoa_name"] = lsoa_meta["lsoa_name"].astype(str)
+    lsoa_meta["borough"] = lsoa_meta["borough"].astype(str)
+
+    out = raw.merge(lsoa_meta, on="lsoa_code", how="left")
+    return out[cols]
+
+
 def filter_crime_df(
     df: pd.DataFrame,
     categories: tuple[str, ...] = (),

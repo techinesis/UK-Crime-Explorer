@@ -6,27 +6,15 @@ tuple. Boundary GeoJSON is served as static CDN assets, not by this API.
 """
 
 from __future__ import annotations
-from typing import no_type_check
 
 from contextlib import asynccontextmanager
 from functools import lru_cache
-
-import numpy as np
-import pandas as pd
-from allocation import (
-    _DAILY_HOURLY_WEIGHTS,
-    ANTI_OVER_POLICING_WEIGHTS,
-    AllocationInfeasibleError,
-    AveragingModel,
-    LPModel,
-    RawlsModel,
-)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core import geometry
-from core.composite import add_composite_columns, compute_map_values
+from core.composite import compute_map_values
 from core.data import (
     BOROUGH_ALL,
     ID_COLUMN_BY_LEVEL,
@@ -34,9 +22,9 @@ from core.data import (
     aggregate,
     filter_crime_df,
     get_crime_long,
-    get_forecast_long,
 )
 from core.weights import category_metadata, load_weights, weights_records
+from core.allocation_chat import _allocation_payload
 from api.chat import register_chat
 from api.schemas import (
     AllocationResponse,
@@ -44,7 +32,6 @@ from api.schemas import (
     MapRequest,
     MapResponse,
     MetaResponse,
-    AllocationEntry,
 )
 
 ALLOWED_ORIGINS = [
@@ -204,130 +191,11 @@ def weights() -> list[dict]:
     return weights_records()
 
 
-_CAT_TEMPLATES: dict[str, np.ndarray] = {}
-for _cat, (_hw, _dw) in _DAILY_HOURLY_WEIGHTS.items():
-    _h = np.array(_hw, dtype=float)
-    _h /= _h.sum()
-    _d = np.array(_dw, dtype=float)
-    _d /= _d.sum()
-    _CAT_TEMPLATES[_cat] = np.outer(_d, _h)
-
-_DEFAULT_TEMPLATE = _CAT_TEMPLATES.get("Other crime", np.ones((7, 24)) / (7 * 24))
-
-
-def _apply_anti_over_policing_weights(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    factors = out["category"].map(ANTI_OVER_POLICING_WEIGHTS).fillna(1.0)
-    out["crime_count"] = out["crime_count"] * factors.to_numpy()
-    return add_composite_columns(out)
-
-
-def _lsoa_weekly_schedule(crime_shares: dict, units: int, active: float = 0.33) -> list[list[int]]:
-    total = sum(crime_shares.values())
-    if total <= 0:
-        return [[1] * 24 for _ in range(7)]
-    template = np.zeros((7, 24), dtype=float)
-    for cat, count in crime_shares.items():
-        template += (count / total) * _CAT_TEMPLATES.get(cat, _DEFAULT_TEMPLATE)
-    mean_val = template.mean()
-    if mean_val > 0:
-        template /= mean_val
-    return np.maximum(np.round(template * units * active).astype(int), 1).tolist()
-
-
-@no_type_check # type checkers aren't too happy about itertuples
-@lru_cache(maxsize=64)
-def _allocation_payload(
-    city: str,
-    total_units: int,
-    model: str,
-    alpha: float,
-    beta: float,
-    max_cap_factor: float,
-    equity_floor: float,
-    min_units_per_lsoa: int,
-) -> AllocationResponse:
-    df = _apply_anti_over_policing_weights(get_forecast_long(city))
-    resp = AllocationResponse(
-        city=city,
-        total_units=total_units,
-        model=model,
-        warning="",
-        entries=[],
-    )
-
-    lsoa_name_map = df.groupby("lsoa_code")["lsoa_name"].first()
-    borough_map = df.groupby("lsoa_code")["borough"].first()
-
-    warning: str | None = None
-    if model == "lp":
-        alloc_model = LPModel(
-            weighted_column="composite_weighted_mean",
-            total_units=total_units,
-            alpha=alpha,
-            beta=beta,
-            gamma=max(0.0, 1.0 - alpha - beta),
-            max_cap_factor=max_cap_factor,
-            equity_floor=equity_floor,
-            min_units_per_lsoa=min_units_per_lsoa,
-        )
-    elif model == "rawls":
-        alloc_model = RawlsModel(
-            weighted_column="composite_weighted_mean",
-            total_units=total_units,
-            min_units_per_lsoa=min_units_per_lsoa,
-        )
-    else:
-        alloc_model = AveragingModel(total_units=total_units)
-
-    try:
-        allocated_df = alloc_model.allocate(df)
-    except AllocationInfeasibleError as e:
-        warning = f"Allocation was infeasible with the given parameters ({e})."
-        resp.warning = warning
-        return resp
-
-    allocated_df["lsoa_name"] = (
-        allocated_df["lsoa_code"].map(lsoa_name_map).fillna(allocated_df["lsoa_code"])
-    )
-    if "borough" not in allocated_df.columns:
-        allocated_df["borough"] = allocated_df["lsoa_code"].map(borough_map)
-
-    crime_by_lsoa: dict[str, dict[str, float]] = {}
-    for row in (
-        df
-        .groupby(["lsoa_code", "category"])["crime_count"]
-        .sum()
-        .reset_index()
-        .itertuples(index=False)
-    ):
-        crime_by_lsoa.setdefault(str(row.lsoa_code), {})[str(row.category)] = float(row.crime_count)
-
-    entries = []
-    for row in allocated_df.itertuples(index=False):
-        lsoa = str(row.lsoa_code)
-        u = max(1, int(round(float(row.units))))
-        shares = crime_by_lsoa.get(lsoa, {"Other crime": 1.0})
-        entries.append(
-            AllocationEntry(
-                lsoa_code=lsoa,
-                lsoa_name=str(row.lsoa_name),
-                borough=str(row.borough),
-                units=float(row.units),
-                schedule=_lsoa_weekly_schedule(shares, u),
-            )
-        )
-
-    resp.warning = warning
-    resp.entries = entries
-    return resp
-
-
 @app.get("/api/allocation", response_model=AllocationResponse)
 def allocation_endpoint(
     # Not sure if there is a way to put these into a class while preserving defaults
     city: str = "london",
-    total_units: int = 30000,
+    total_units: int = 33000,  # matches the frontend default; above the min-units floor
     model: str = "lp",
     alpha: float = 0.6,
     beta: float = 0.25,
