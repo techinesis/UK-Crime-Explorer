@@ -3,7 +3,8 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchAllocation, fetchMeta, fetchWeights } from './lib/api'
 import { useCrimeData } from './hooks/useCrimeData'
-import { metricCaption, useFilters } from './hooks/useFilters'
+import { metricCaption } from './hooks/useFilters'
+import { FiltersProvider, useFiltersContext } from './hooks/FiltersContext'
 import { useAnimation } from './hooks/useAnimation'
 import { useTheme } from './hooks/useTheme'
 import CrimeMap from './components/CrimeMap'
@@ -27,29 +28,52 @@ import type { AllocationRequest } from './lib/types'
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="flex h-screen flex-col">
-        <NavBar />
-        <div className="min-h-0 flex-1">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/allocation" element={<AllocationPage />} />
-            <Route path="/about" element={<AboutPage />} />
-          </Routes>
-        </div>
-      </div>
+      <FiltersProvider>
+        <AppShell />
+      </FiltersProvider>
     </BrowserRouter>
+  )
+}
+
+// Holds the app-wide chrome that must persist across routes: the nav bar and the
+// single AI chat panel. The chat lives here (not inside a page) so it is available
+// on every route and shares the one FiltersProvider state.
+function AppShell() {
+  const chatAvailable = useChatAvailable()
+  const [chatOpen, setChatOpen] = useState(false)
+  const { filters, update } = useFiltersContext()
+
+  return (
+    <div className="flex h-screen flex-col">
+      <NavBar
+        chatAvailable={chatAvailable}
+        chatOpen={chatOpen}
+        onToggleChat={() => setChatOpen((o) => !o)}
+      />
+      <div className="min-h-0 flex-1">
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/allocation" element={<AllocationPage />} />
+          <Route path="/about" element={<AboutPage />} />
+        </Routes>
+      </div>
+
+      {chatAvailable && (
+        <ChatPanel
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          filters={filters}
+          update={update}
+        />
+      )}
+    </div>
   )
 }
 
 function Dashboard() {
   const { theme, toggle } = useTheme()
-  const { filters, update } = useFilters()
+  const { filters, update } = useFiltersContext()
 
-  // AI chat panel: only shown when the backend reports it is configured
-  // (ANTHROPIC_API_KEY + deps present). Collapsed by default.
-  const chatAvailable = useChatAvailable()
-  const [chatOpen, setChatOpen] = useState(false)
-  
   const meta = useQuery({ queryKey: ['meta', filters.city], queryFn: () => fetchMeta(filters.city) })
   const weights = useQuery({ queryKey: ['weights', filters.city], queryFn: fetchWeights })
   const allocation = useQuery({
@@ -118,15 +142,6 @@ function Dashboard() {
         </div>
 
         <div className="flex items-center gap-2">
-          {chatAvailable && (
-            <button
-              onClick={() => setChatOpen((o) => !o)}
-              aria-pressed={chatOpen}
-              className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-fg hover:border-accent"
-            >
-              💬 Assistant
-            </button>
-          )}
           <ThemeToggle theme={theme} onToggle={toggle} />
         </div>
       </header>
@@ -212,15 +227,6 @@ function Dashboard() {
           <Footer />
         </aside>
       </div>
-
-      {chatAvailable && (
-        <ChatPanel
-          open={chatOpen}
-          onClose={() => setChatOpen(false)}
-          filters={filters}
-          update={update}
-        />
-      )}
     </div>
   )
 }

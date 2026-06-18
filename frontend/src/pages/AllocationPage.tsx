@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchAllocation, fetchMeta } from '../lib/api'
 import { useTheme } from '../hooks/useTheme'
-import { ALLOCATION_MODELS, BOROUGH_ALL, CITIES, DEFAULT_ALLOCATION_PARAMS, DEFAULT_FILTERS } from '../hooks/useFilters'
+import { ALLOCATION_MODELS, BOROUGH_ALL, CITIES, DEFAULT_ALLOCATION_PARAMS } from '../hooks/useFilters'
+import type { FilterState } from '../hooks/useFilters'
+import { useFiltersContext } from '../hooks/FiltersContext'
 import ThemeToggle from '../components/ThemeToggle'
 import type { AllocationEntry, AllocationRequest } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
@@ -205,18 +207,36 @@ function ParamSlider({
 
 export default function AllocationPage() {
   const { theme, toggle } = useTheme()
-  const city = CITIES[0]
-  const [borough, setBorough] = useState(BOROUGH_ALL)
-  const [totalUnits, setTotalUnits] = useState(DEFAULT_FILTERS.totalUnits)
-  const [model, setModel] = useState(ALLOCATION_MODELS[0].value)
-  const [inputUnits, setInputUnits] = useState(`${DEFAULT_FILTERS.totalUnits}`)
-  const [paramsOpen, setParamsOpen] = useState(false)
 
-  const [alpha, setAlpha] = useState(DEFAULT_ALLOCATION_PARAMS.allocAlpha)
-  const [beta, setBeta] = useState(DEFAULT_ALLOCATION_PARAMS.allocBeta)
-  const [maxCapFactor, setMaxCapFactor] = useState(DEFAULT_ALLOCATION_PARAMS.allocMaxCapFactor)
-  const [equityFloor, setEquityFloor] = useState(DEFAULT_ALLOCATION_PARAMS.allocEquityFloor)
-  const [minUnitsPerLsoa, setMinUnitsPerLsoa] = useState(DEFAULT_ALLOCATION_PARAMS.allocMinUnitsPerLsoa)
+  // All allocation params come from the shared FilterState so the chat's
+  // set_allocation_params action (and the dashboard sidebar) drive this page too.
+  // These thin aliases keep the controls below unchanged while writing through
+  // `update`. Numeric setters accept a functional updater (β needs one).
+  const { filters, update } = useFiltersContext()
+  const city = CITIES[0] // allocation is London-only; city is not chat-tunable here
+  const borough = filters.borough
+  const setBorough = (b: string) => update({ borough: b })
+  const model = filters.allocationModel
+  const setModel = (m: string) => update({ allocationModel: m as FilterState['allocationModel'] })
+  const totalUnits = filters.totalUnits
+  const setTotalUnits = (n: number) => update({ totalUnits: n })
+
+  const resolveNum = (cur: number, n: number | ((p: number) => number)): number =>
+    typeof n === 'function' ? n(cur) : n
+  const alpha = filters.allocAlpha
+  const setAlpha = (n: number | ((p: number) => number)) =>
+    update({ allocAlpha: resolveNum(alpha, n) })
+  const beta = filters.allocBeta
+  const setBeta = (n: number | ((p: number) => number)) =>
+    update({ allocBeta: resolveNum(beta, n) })
+  const maxCapFactor = filters.allocMaxCapFactor
+  const setMaxCapFactor = (n: number) => update({ allocMaxCapFactor: n })
+  const equityFloor = filters.allocEquityFloor
+  const setEquityFloor = (n: number) => update({ allocEquityFloor: n })
+  const minUnitsPerLsoa = filters.allocMinUnitsPerLsoa
+  const setMinUnitsPerLsoa = (n: number) => update({ allocMinUnitsPerLsoa: n })
+
+  const [paramsOpen, setParamsOpen] = useState(false)
 
   const gamma = Math.max(0, Math.round((1 - alpha - beta) * 100) / 100)
 
@@ -304,8 +324,8 @@ export default function AllocationPage() {
   const loading = allocation.isLoading
   const noData = !loading && !allocation.data
 
-  function commitUnits() {
-    const v = parseInt(inputUnits, 10)
+  function commitUnits(raw: string) {
+    const v = parseInt(raw, 10)
     if (Number.isFinite(v) && v > 0) setTotalUnits(v)
   }
 
@@ -355,14 +375,18 @@ export default function AllocationPage() {
             <div className="flex items-center gap-1">
               <label className="text-xs text-muted">Units</label>
               <input
+                // Remount when totalUnits changes elsewhere (e.g. the chat) so the
+                // field shows the new value; typing stays local until blur/Enter.
+                key={totalUnits}
                 type="number"
                 min={100}
                 max={50000}
                 step={100}
-                value={inputUnits}
-                onChange={(e) => setInputUnits(e.target.value)}
-                onBlur={commitUnits}
-                onKeyDown={(e) => e.key === 'Enter' && commitUnits()}
+                defaultValue={totalUnits}
+                onBlur={(e) => commitUnits(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitUnits((e.target as HTMLInputElement).value)
+                }}
                 className="w-24 rounded-md border border-border bg-card px-2 py-1.5 text-sm text-fg focus:border-accent focus:outline-none"
               />
             </div>
