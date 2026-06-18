@@ -1,10 +1,10 @@
 # Smoke tests
 
 Fast, opt-in, end-to-end checks that exercise the whole stack against the
-**committed real data** — `/api/meta`, `/api/map`, the composite math, the chat
-tools, and the chat HTTP layer (health, SSE, rate limit). **No LLM call, no
-network.** Run them the morning of a demo to catch a silent regression before it
-shows up on screen.
+**committed real data** — `/api/meta`, `/api/map`, `/api/timeseries`, the
+composite math, the chat tools, and the chat HTTP layer (health, SSE, rate
+limit). **No LLM call, no network.** Run them the morning of a demo to catch a
+silent regression before it shows up on screen.
 
 ## Morning-of runbook
 
@@ -22,6 +22,7 @@ runs these.
 |---|---|---|
 | `test_meta_endpoint` | data load | is `data/crime_snapshot-london.parquet` present? |
 | `test_map_endpoints` | a map mode regressed | `core/composite.py`, `core/geometry.py` |
+| `test_timeseries` | timeseries endpoint | the `/api/timeseries` route in `api/main.py` |
 | `test_composite_invariants` | composite math drift | `core/data.py` or `core/weights.py` |
 | `test_chat_tools` | tool registry mismatch | `core/chat.py` |
 | `test_chat_http` | chat HTTP layer | `api/chat.py`, `api/main.py` |

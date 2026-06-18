@@ -14,6 +14,7 @@ const SECTIONS = [
   { id: 'preventability', title: 'Crime Preventability' },
   { id: 'forecasting', title: 'Forecasting' },
   { id: 'allocation', title: 'Allocation' },
+  { id: 'conversational-assistant', title: 'Conversational Assistant' },
   { id: 'ethics', title: 'Ethical Framing' },
   { id: 'extensibility', title: 'Multi-city Extensibility' },
   { id: 'references', title: 'References' },
@@ -245,6 +246,20 @@ export default function AboutPage() {
               lower total to guarantee no area is left far behind. The dashboard presents the result
               as a ranking of areas, never as an instruction — it never prescribes officer counts,
               and the deployment decision always stays with the human planner.
+            </p>
+          </Section>
+
+          <Section id="conversational-assistant" title="Conversational Assistant">
+            <p>
+              The dashboard ships with a conversational assistant that answers in plain language
+              while staying anchored to the same numbers as the rest of the app. It offers three
+              personas — a police planner, an examiner, and a community voice — that differ in tone
+              but read from one shared data layer, so the figures never diverge. Every quantitative
+              claim comes from an explicit tool call — filters, weights, forecast, allocation, and
+              the methodology docs — and an audit badge under each reply names the tool that
+              supplied the number, so a reader can check it rather than trust it. The same guardrail
+              as the allocation view applies: the assistant ranks and explains options, and never
+              prescribes a deployment.
             </p>
           </Section>
 

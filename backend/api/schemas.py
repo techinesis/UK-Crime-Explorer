@@ -65,3 +65,20 @@ class AllocationResponse(BaseModel):
     model: str
     warning: str | None = None
     entries: list[AllocationEntry]
+
+
+class TimeseriesPoint(BaseModel):
+    year: int
+    month: int
+    count: int
+
+
+class TimeseriesResponse(BaseModel):
+    lsoa_code: str
+    lsoa_name: str
+    borough: str
+    # The category filter applied (empty = all categories).
+    categories: list[str]
+    # Ascending by (year, month); months with no records are 0-filled so the
+    # sparkline draws a continuous line with no gaps.
+    series: list[TimeseriesPoint]

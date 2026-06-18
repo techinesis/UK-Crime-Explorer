@@ -29,15 +29,36 @@ export default function AnimationControls({ periods, anim }: AnimationControlsPr
         Animate
       </label>
 
-      <button type="button" className={btn} disabled={!anim.enabled} onClick={anim.reset} title="Reset">
+      <button
+        type="button"
+        className={btn}
+        disabled={!anim.enabled}
+        onClick={anim.reset}
+        title="Reset"
+        aria-label="Reset animation to start"
+      >
         ⏮
       </button>
       {anim.playing ? (
-        <button type="button" className={btn} disabled={!anim.enabled} onClick={anim.pause}>
+        <button
+          type="button"
+          className={btn}
+          disabled={!anim.enabled}
+          onClick={anim.pause}
+          aria-label="Pause animation"
+          aria-pressed={true}
+        >
           ⏸ Pause
         </button>
       ) : (
-        <button type="button" className={btn} disabled={!anim.enabled} onClick={anim.play}>
+        <button
+          type="button"
+          className={btn}
+          disabled={!anim.enabled}
+          onClick={anim.play}
+          aria-label="Play animation"
+          aria-pressed={false}
+        >
           ▶ Play
         </button>
       )}
@@ -50,6 +71,11 @@ export default function AnimationControls({ periods, anim }: AnimationControlsPr
         disabled={!anim.enabled}
         onChange={(e) => anim.scrub(Number(e.target.value))}
         className="w-48 accent-accent disabled:opacity-40"
+        aria-label="Animation period"
+        aria-valuemin={0}
+        aria-valuemax={max}
+        aria-valuenow={Math.min(anim.index, max)}
+        aria-valuetext={label(periods[anim.index])}
       />
       <span className="w-16 text-center text-sm tabular-nums">{label(periods[anim.index])}</span>
     </div>

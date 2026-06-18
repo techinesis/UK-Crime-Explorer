@@ -1,205 +1,154 @@
 # London Crime Explorer
 
-An interactive web app that maps recorded crime across London and exposes a
-composite **police-demand signal** (`crime count × severity × preventability`)
-at LSOA, ward, and borough level.
+A data-driven decision-support system that maps recorded crime across London and
+turns it into a composite **police-demand signal** —
+`crime count × severity × preventability` — at LSOA, ward, and borough level.
+Built for **TU/e 4CBLW020 — Multidisciplinary Challenge-Based Learning, Group 3**.
 
-- **Severity** comes from the **Cambridge Crime Harm Index 2020** (recommended
-  sentence in days), exposed on a Mean / Median basis.
-- **Preventability** multipliers are anchored in the hot-spot policing
-  literature, each with a confidence rating and a one-line citation.
-
-Built for **TU/e 4CBLW020 — Multidisciplinary Challenge-Based Learning,
-Group 3**.
-
-The app is a conventional full-stack web app:
-
-- **Backend** — FastAPI serving the analysis as a small JSON API. The
-  framework-agnostic analysis lives in `backend/core/` (data loading,
-  filtering, aggregation, the composite metric) so it can be reused directly
-  by other workstreams.
-- **Frontend** — Vite + React + TypeScript. The choropleth is rendered with
-  **deck.gl** over a token-free **MapLibre** (CARTO) basemap; server state is
-  managed with TanStack Query.
+The signal is advisory: it ranks where attention is most warranted and shows the
+reasoning behind every number; it never prescribes a deployment.
 
 ---
 
-## Features
+## Demo
 
-Sidebar controls:
-
-- **Map mode**: Raw crime count · Crime share within selection · Severity-weighted ·
-  Preventability-filtered · Composite (severity × preventability).
-- **Severity basis**: Mean CCHI / Median CCHI (changes the severity and
-  composite modes).
-- **Aggregation level**: LSOA · Ward · Borough.
-- **Crime type** multi-select with a confidence prefix (🟢 High / 🟡 Medium /
-  🔴 Low). An empty selection counts as all types.
-- **Preventability tier**, **year**, **months**, and **borough** filters.
-
-Map and panels:
-
-- A YlOrRd choropleth with a legend (min/max for the active metric) and
-  hover tooltips (unit name, borough, crime count, displayed value).
-- Selecting a borough refits the view to it.
-- **Top 10** units by the active metric, a **current-selection** recap, a
-  **borough summary** table, and a **sources** panel listing the confidence and
-  literature anchor for each selected category.
-- A **time animation** that steps through every `(year, month)` period present
-  in the data, with play / pause / reset and a scrubber.
+**Live:** https://4-cblw-020-group-3-techinesis-projects.vercel.app
 
 ---
 
-## Prerequisites
+## What it does
 
-- **Python 3.12** (the geospatial stack pins `numpy==1.26.4`, which has no
-  prebuilt wheel for 3.14).
-- **Node.js 20+** and npm.
-
-The boundary GeoJSONs, the CCHI spreadsheet, `category_weights.csv`, and a
-compressed seed of the crime data are committed under `data/`, so a fresh
-clone can run without any extra downloads.
-
----
-
-## Setup
-
-### Backend
-
-```powershell
-cd backend
-py -3.12 -m venv .venv
-.venv\Scripts\Activate.ps1            # Windows PowerShell
-# source .venv/bin/activate           # macOS / Linux
-pip install -r requirements.txt
-```
-
-### Frontend
-
-```powershell
-cd frontend
-npm install
-```
+- **Composite demand signal.** Combines crime volume, severity, and
+  preventability into one comparable score per area, at three resolutions
+  (LSOA / ward / borough).
+- **Five metric modes.** Raw count · crime share within the selection ·
+  severity-weighted · preventability-filtered · composite. A Mean / Median CCHI
+  toggle drives the severity and composite modes.
+- **Filters + time animation.** Crime type, preventability tier, year, months,
+  and borough; an animation that steps through every `(year, month)` period with
+  play / pause / reset and a scrubber.
+- **Per-LSOA time series.** Click any LSOA to see its last 24 months of monthly
+  crime as a sparkline in the recap panel, filtered to the active categories.
+- **Forecast (XGBoost).** A forecast mode projecting future demand over 1 / 3 /
+  6 / 12-month horizons, trained offline and read from committed artifacts.
+- **Allocation.** Three variants over the demand signal — a proportional
+  baseline, a linear-programming model that maximises preventable-harm coverage,
+  and a Rawlsian variant that lifts the worst-served area — each with a weekly
+  deployment schedule. The `/allocation` page summarises the result as a ranking,
+  never an instruction.
+- **Conversational assistant.** An optional chat with three personas (police
+  planner / examiner / community) over one shared data layer. Every quantitative
+  claim comes from an explicit tool call and carries an audit badge naming the
+  tool that produced it; the assistant ranks and explains, and never prescribes.
+- **Methodology page.** `/about` documents the composite signal, severity
+  (Cambridge Crime Harm Index 2020), preventability (hot-spot policing
+  literature), forecasting, allocation, ethics, and references.
 
 ---
 
-## Running
+## Stack
 
-Run the two servers in separate terminals.
+- **Frontend** — React 18 + TypeScript + Vite. deck.gl choropleth over a
+  token-free MapLibre (CARTO) basemap; TanStack Query for server state;
+  Tailwind v4 with a runtime light/dark theme. Sparkline is hand-rolled SVG (no
+  chart library).
+- **Backend** — FastAPI + pandas. The framework-agnostic analysis lives in
+  `backend/core/` (data loading, filtering, aggregation, the composite metric,
+  and the LP / Rawlsian / proportional allocation models). Forecasting uses
+  XGBoost; the live app reads the committed forecast artifacts rather than
+  training.
+- **Assistant** — Anthropic **Claude Sonnet 4.6**, optional: the chat panel
+  hides itself when no API key is configured, leaving the rest of the app
+  untouched.
+- **Deployment** — Vercel: a static SPA on the CDN plus one lean Python function
+  (pandas only — no geopandas — so cold starts stay fast).
 
-**Backend** (serves the API at `http://127.0.0.1:8000`):
+---
 
-```powershell
-cd backend
-uvicorn api.main:app --reload
-```
+## Pages
 
-The first start assembles the crime dataset and writes a parquet snapshot
-(`data/crime_snapshot.parquet`); later starts read the snapshot and are
-near-instant. To rebuild it, delete that file.
-
-**Frontend** (serves the app at `http://localhost:5173`):
-
-```powershell
-cd frontend
-npm run dev
-```
-
-The dev server proxies `/api` to the backend, so open
-`http://localhost:5173` and the app talks to FastAPI with no extra config.
+| Route | Page | What it shows |
+|---|---|---|
+| `/` | Dashboard | The map, sidebar filters, animation, metric modes, side panels, per-LSOA sparkline. |
+| `/allocation` | Allocation | LP / Rawlsian / proportional summary with weekly deployment schedules and a per-LSOA breakdown. |
+| `/about` | Methodology | The eight-plus-one methodology sections, including the conversational-assistant note. |
 
 ---
 
 ## API
 
-All routes are under `/api`:
+All routes are under `/api`. Boundary GeoJSON is **not** an API route — it is
+served as static assets at `/boundaries/{level}.json`.
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/api/meta` | Years, months, periods, categories (+ metadata), boroughs, tiers |
-| POST | `/api/map` | Per-unit values + crime counts + colour-scale bounds for a filter set |
-| GET | `/api/weights` | The full category weights table |
+| Method | Route | Returns | Called by |
+|---|---|---|---|
+| GET | `/api/health` | Liveness probe `{status: "ok"}` | smoke tests / uptime |
+| GET | `/api/meta` | Years, months, periods, categories (+ metadata), boroughs, tiers | sidebar + map setup |
+| POST | `/api/map` | Per-unit values + crime counts + colour-scale bounds for a filter set | the choropleth |
+| GET | `/api/weights` | The full category weights table | the sources panel + `/about` |
+| GET | `/api/allocation` | LP / Rawlsian / baseline allocation with weekly schedules | the `/allocation` page |
+| GET | `/api/timeseries` | One LSOA's last-N-months crime counts (zero-filled), category-filtered | the recap sparkline |
+| GET | `/api/chat/health` | Whether the assistant is configured | the nav (shows/hides chat) |
+| POST | `/api/chat` | Streaming (SSE) assistant responses with tool calls | the chat panel |
 
-Interactive API docs are available at `http://127.0.0.1:8000/docs`.
-
-Boundary GeoJSON is **not** an API route — it is served as static assets at
-`/boundaries/{level}.json`, pre-baked by `frontend/scripts/prepare-static.mjs`
-(run automatically before `dev` and `build`).
-
----
-
-## Deploying to Vercel
-
-The app deploys as a static frontend (CDN) plus one lightweight Python
-serverless function:
-
-- `frontend/dist` → static site, including the pre-baked `/boundaries/*.json`.
-- `api/index.py` → FastAPI function for `/api/meta`, `/api/map`, `/api/weights`.
-  It reads the committed `data/crime_snapshot.parquet` (~2 MB) and uses **pandas
-  only** — no geopandas — so the bundle is small and cold starts are fast.
-
-`vercel.json` wires it up (frontend build command, `/api/*` rewrite to the
-function, and the data files the function needs). No environment variables or
-API keys are required (the basemap is token-free).
-
-To deploy: import the repository at [vercel.com/new](https://vercel.com/new),
-keep the **root directory at the repository root** (not `frontend/`), and deploy.
-Vercel reads `vercel.json` automatically. Pushes to a branch get a preview URL;
-the production branch deploys on merge.
+Interactive API docs: `http://127.0.0.1:8000/docs`.
 
 ---
 
-## Project layout
+## Run locally
+
+Python 3.12 (the geospatial stack pins `numpy==1.26.4`) and Node 20+. The
+committed data lets a fresh clone run offline. In separate terminals:
 
 ```
-backend/
-  core/        framework-agnostic analysis (no web deps)
-    data.py        load / filter / aggregate the crime data
-    weights.py     severity + preventability lookup
-    composite.py   the five metric columns + metric resolution
-    geometry.py    boundary GeoJSON loading
-    paths.py       data/cache path resolution
-  api/
-    client.py      data.police.uk + Kaggle fetcher
-    main.py        FastAPI app + routes
-    schemas.py     Pydantic request/response models
-  scripts/     ETL: boundary preparation + weight derivation
-  tests/       pytest unit + API tests
-  requirements.txt
-frontend/
-  src/
-    components/  CrimeMap, Sidebar, Legend, AnimationControls, panels
-    hooks/       useFilters, useCrimeData, useAnimation
-    lib/         api (typed fetch), types (mirror schemas), colors (YlOrRd)
-data/          boundaries, weights, CCHI source, crime seed (committed)
+cd backend && uvicorn api.main:app --reload     # http://127.0.0.1:8000
+cd frontend && npm install && npm run dev        # http://localhost:5173
+cd backend && pytest                             # full unit suite
+cd backend && pytest -m smoke                    # ~30-second pre-flight
 ```
+
+The Vite dev server proxies `/api` to the backend, so open
+`http://localhost:5173` and the app talks to FastAPI with no extra config. The
+backend reads the committed `data/crime_snapshot-london.parquet` (fast, offline);
+delete it to force a rebuild.
 
 ---
 
 ## Tests
 
-```powershell
-cd backend
-.venv\Scripts\Activate.ps1
-pytest
-```
-
-Covers the composite math, metric resolution, filtering/aggregation, and the
-API endpoints against the loaded data.
+- **Unit suite** (`pytest`) — composite math, metric resolution,
+  filtering / aggregation, the API endpoints, and the chat tools, against the
+  loaded data.
+- **Smoke suite** (`pytest -m smoke`) — opt-in, end-to-end checks against the
+  committed real data (`/api/meta`, `/api/map`, `/api/timeseries`, composite
+  invariants, chat tools, chat HTTP). No LLM, no network; runs in ~30 seconds.
+  See [`backend/tests/smoke/README.md`](backend/tests/smoke/README.md) for the
+  morning-of runbook and failure-mode chart.
 
 ---
 
-## Re-deriving severity / preventability weights
+## Project context
 
-`data/category_weights.csv` is read at startup and has seven columns:
-`category, severity_weight_mean, severity_weight_median,
-preventability_multiplier, preventability_tier, preventability_confidence,
-preventability_anchor`.
+A TU/e **4CBLW020 — Multidisciplinary Challenge-Based Learning** project,
+academic year 2025–2026, Group 3. The brief: build a decision-support tool that
+helps a planner reason about where police attention is most warranted, with the
+reasoning visible and contestable rather than hidden in a model.
 
-Do not hand-edit it. Change the source-of-truth dictionaries in
-`backend/scripts/prepare_category_weights.py` (`CCHI_GROUPS_*` and
-`PREVENTABILITY_*`) and re-run it; the preventability tier is derived from the
-multiplier automatically. Restart the backend afterwards to pick up the change.
+<!-- TODO: replace with the real team list, alphabetical by surname, with roles. e.g.:
+- **Surname, Firstname** — role (e.g. data / backend / frontend / ethics / forecasting)
+-->
+
+_Team members and roles: to be filled in._
+
+---
+
+## Where things live
+
+- [`backend/tests/smoke/README.md`](backend/tests/smoke/README.md) — smoke-test
+  runbook and failure-mode chart.
+- [`frontend/README.md`](frontend/README.md) — frontend layout and dev workflow.
+- [`backend/scripts/README.md`](backend/scripts/README.md) — the ETL / QA scripts
+  and when to re-run each.
 
 ---
 
@@ -208,7 +157,7 @@ multiplier automatically. Restart the backend afterwards to pick up the change.
 - **Crime counts** — *London Crime Data, 2008–2016* (Kaggle `jboysen/london-crime`)
   combined with recent monthly extracts from data.police.uk, aggregated to
   LSOA × month × category.
-- **Boundaries** — [LSOAs](https://www.data.gov.uk/dataset/4190f779-9476-4ab2-a611-fe7aa14811be/lower-layer-super-output-areas-december-2021-boundaries-ew-bsc-v4?utm_source=chatgpt.com), [Boroughs](https://www.data.gov.uk/dataset/1f8858d7-487f-4be8-96b0-69a156764bb4/local-authority-districts-may-2025-boundaries-uk-bfe-v2), [Wards](https://www.data.gov.uk/dataset/612b175b-987c-4acf-8ca4-1f93c6947928/wards-may-2025-boundaries-uk-bfc-v2)
+- **Boundaries** — LSOA, ward, and borough boundaries from data.gov.uk.
 - **Severity** — *Cambridge Crime Harm Index 2020 Update* (Cambridge Centre for
   Evidence-Based Policing).
 - **Preventability** — anchored in Braga et al. (2019), Weisburd (2015, 2021),

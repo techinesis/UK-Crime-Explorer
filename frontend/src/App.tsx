@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { fetchAllocation, fetchMeta, fetchWeights } from './lib/api'
+import { fetchAllocation, fetchMeta, fetchTimeseries, fetchWeights } from './lib/api'
 import { useCrimeData } from './hooks/useCrimeData'
 import { metricCaption } from './hooks/useFilters'
 import { FiltersProvider, useFiltersContext } from './hooks/FiltersContext'
@@ -20,6 +20,7 @@ import BoroughSummary from './components/BoroughSummary'
 import Footer from './components/Footer'
 import ChatPanel from './components/ChatPanel'
 import NavBar from './components/NavBar'
+import ErrorBoundary from './components/ErrorBoundary'
 import AboutPage from './pages/AboutPage'
 import AllocationPage from './pages/AllocationPage'
 import { useChatAvailable } from './hooks/useChatHealth'
@@ -28,9 +29,11 @@ import type { AllocationRequest } from './lib/types'
 export default function App() {
   return (
     <BrowserRouter>
-      <FiltersProvider>
-        <AppShell />
-      </FiltersProvider>
+      <ErrorBoundary>
+        <FiltersProvider>
+          <AppShell />
+        </FiltersProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   )
 }
@@ -45,16 +48,43 @@ function AppShell() {
 
   return (
     <div className="flex h-screen flex-col">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
+      >
+        Skip to main content
+      </a>
       <NavBar
         chatAvailable={chatAvailable}
         chatOpen={chatOpen}
         onToggleChat={() => setChatOpen((o) => !o)}
       />
-      <div className="min-h-0 flex-1">
+      <div id="main" className="min-h-0 flex-1">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/allocation" element={<AllocationPage />} />
-          <Route path="/about" element={<AboutPage />} />
+          <Route
+            path="/"
+            element={
+              <ErrorBoundary>
+                <Dashboard />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/allocation"
+            element={
+              <ErrorBoundary>
+                <AllocationPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/about"
+            element={
+              <ErrorBoundary>
+                <AboutPage />
+              </ErrorBoundary>
+            }
+          />
         </Routes>
       </div>
 
@@ -73,6 +103,14 @@ function AppShell() {
 function Dashboard() {
   const { theme, toggle } = useTheme()
   const { filters, update } = useFiltersContext()
+
+  // The LSOA the user last clicked on the map (null until the first click).
+  // Drives the time-series sparkline in the recap panel.
+  const [selectedLsoa, setSelectedLsoa] = useState<{
+    code: string
+    name: string
+    borough: string
+  } | null>(null)
 
   const meta = useQuery({ queryKey: ['meta', filters.city], queryFn: () => fetchMeta(filters.city) })
   const weights = useQuery({ queryKey: ['weights', filters.city], queryFn: fetchWeights })
@@ -105,6 +143,12 @@ function Dashboard() {
       }
       return fetchAllocation(req)
     },
+  })
+
+  const timeseries = useQuery({
+    queryKey: ['timeseries', filters.city, selectedLsoa?.code, filters.categories],
+    queryFn: () => fetchTimeseries(selectedLsoa!.code, filters.categories, filters.city),
+    enabled: selectedLsoa !== null,
   })
 
   const { boundaries, map, boroughMap } = useCrimeData(filters)
@@ -163,6 +207,7 @@ function Dashboard() {
               theme={theme}
               meta={meta.data}
               allocation={allocation.data}
+              onSelectLsoa={setSelectedLsoa}
             />
           </div>
 
@@ -183,8 +228,13 @@ function Dashboard() {
           )}
 
           {loading && (
-            <div className="absolute right-3 top-3 rounded-md bg-card/90 px-3 py-1 text-xs text-muted shadow">
-              Loading…
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              {/* Translucent pulsing wash over the map area — the basemap stays
+                  visible underneath so it does not read as a full reload. */}
+              <div className="absolute inset-0 animate-pulse bg-surface/40" />
+              <span className="relative rounded-md bg-card/90 px-3 py-1.5 text-xs text-muted shadow">
+                Loading data…
+              </span>
             </div>
           )}
 
@@ -206,7 +256,13 @@ function Dashboard() {
             />
           )}
 
-          <SelectionRecap filters={filters} totalCategories={meta.data?.categories.length ?? 0} />
+          <SelectionRecap
+            filters={filters}
+            totalCategories={meta.data?.categories.length ?? 0}
+            selectedLsoa={selectedLsoa}
+            series={timeseries.data?.series}
+            seriesLoading={timeseries.isFetching}
+          />
 
           <TopUnitsPanel
             level={filters.level}

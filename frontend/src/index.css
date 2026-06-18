@@ -53,3 +53,19 @@ body {
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+/* Centralised, theme-aware focus ring on every interactive control. Uses
+   :focus-visible so the ring only shows for keyboard / assistive-tech users,
+   never on a plain mouse click. One rule covers the sidebar, chat, allocation
+   page, animation controls, and links — no per-control class needed. */
+@layer base {
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex='-1']) {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent;
+  }
+}

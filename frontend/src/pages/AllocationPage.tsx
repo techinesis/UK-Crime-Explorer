@@ -6,6 +6,7 @@ import { ALLOCATION_MODELS, BOROUGH_ALL, CITIES, DEFAULT_ALLOCATION_PARAMS } fro
 import type { FilterState } from '../hooks/useFilters'
 import { useFiltersContext } from '../hooks/FiltersContext'
 import ThemeToggle from '../components/ThemeToggle'
+import Skeleton from '../components/Skeleton'
 import type { AllocationEntry, AllocationRequest } from '../lib/types'
 import type { Theme } from '../hooks/useTheme'
 
@@ -494,11 +495,37 @@ export default function AllocationPage() {
         )}
 
         {loading && (
-          <div className="py-16 text-center">
-            <p className="text-sm text-muted">Computing allocation…</p>
-            <p className="mt-1 text-xs text-muted">
+          <div className="rounded-lg border border-border bg-card p-5">
+            <p className="text-sm font-semibold text-fg">Computing allocation…</p>
+            <p className="mb-3 mt-0.5 text-xs text-muted">
               First load runs the LP model &mdash; this can take a few seconds.
             </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="pb-2 pr-3 font-medium text-muted">#</th>
+                    <th className="pb-2 pr-3 font-medium text-muted">LSOA</th>
+                    <th className="pb-2 pr-3 font-medium text-muted">Borough</th>
+                    <th className="pb-2 pr-3 text-right font-medium text-muted">Units</th>
+                    <th className="pb-2 pr-3 text-right font-medium text-muted">Weekly hrs</th>
+                    <th className="pb-2 pr-3 font-medium text-muted">Busiest day</th>
+                    <th className="pb-2 font-medium text-muted">Peak hour</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 12 }).map((_, row) => (
+                    <tr key={row} className="border-b border-border/50 last:border-0">
+                      {Array.from({ length: 7 }).map((__, col) => (
+                        <td key={col} className="py-1.5 pr-3">
+                          <Skeleton height={12} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

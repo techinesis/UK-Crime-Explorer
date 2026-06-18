@@ -14,7 +14,10 @@ export default function Legend({ vmin, vmax, caption }: LegendProps) {
     <div className="rounded-lg border border-border bg-card/90 px-3 py-2 text-xs text-fg shadow-lg backdrop-blur">
       <div className="mb-1 max-w-56 font-medium leading-tight">{caption}</div>
       <div
-        className="h-3 w-52 rounded"
+        // 1px border so the lightest YlOrRd stop stays distinguishable from the
+        // light-theme background (WCAG AA non-text contrast) without altering
+        // the shared colour ramp the map fill uses.
+        className="h-3 w-52 rounded border border-border"
         style={{ background: `linear-gradient(to right, ${stops})` }}
       />
       <div className="mt-1 flex w-52 justify-between text-muted">

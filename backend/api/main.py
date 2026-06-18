@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from core import geometry
@@ -32,6 +32,8 @@ from api.schemas import (
     MapRequest,
     MapResponse,
     MetaResponse,
+    TimeseriesPoint,
+    TimeseriesResponse,
 )
 
 ALLOWED_ORIGINS = [
@@ -189,6 +191,63 @@ def map_values(req: MapRequest) -> MapResponse:
 @app.get("/api/weights")
 def weights() -> list[dict]:
     return weights_records()
+
+
+@app.get("/api/timeseries", response_model=TimeseriesResponse)
+def timeseries(
+    lsoa_code: str,
+    city: str = "london",
+    categories: list[str] | None = Query(default=None),
+    months: int = 24,
+) -> TimeseriesResponse:
+    """Monthly crime counts for one LSOA over the most recent `months` periods.
+
+    Reuses the same cached crime frame the map endpoint reads. The category
+    filter is optional (empty = all categories). Months in the window with no
+    records are 0-filled so the sparkline draws a continuous line.
+    """
+    df = get_crime_long(city)
+    lsoa_rows = df[df["lsoa_code"] == lsoa_code]
+    if lsoa_rows.empty:
+        raise HTTPException(status_code=404, detail=f"Unknown LSOA code: {lsoa_code}")
+
+    # Name + borough come from the unfiltered LSOA rows so they survive a
+    # category filter that happens to match nothing for this LSOA.
+    lsoa_name = str(lsoa_rows["lsoa_name"].iloc[0])
+    borough = str(lsoa_rows["borough"].iloc[0])
+
+    cats = [c for c in (categories or []) if c]
+    rows = lsoa_rows[lsoa_rows["category"].isin(cats)] if cats else lsoa_rows
+
+    # The window is the most recent `months` (year, month) periods that actually
+    # exist in the city's data — not a synthetic calendar — so it tracks the
+    # rolling data window correctly.
+    all_periods = sorted(
+        {
+            (int(y), int(m))
+            for y, m in df[["year", "month"]]
+            .dropna()
+            .astype(int)
+            .itertuples(index=False, name=None)
+        }
+    )
+    window = all_periods[-months:] if months > 0 else all_periods
+
+    grouped = rows.groupby(["year", "month"])["crime_count"].sum()
+    counts = {(int(y), int(m)): int(v) for (y, m), v in grouped.items()}
+
+    series = [
+        TimeseriesPoint(year=y, month=m, count=counts.get((y, m), 0))
+        for (y, m) in window
+    ]
+
+    return TimeseriesResponse(
+        lsoa_code=lsoa_code,
+        lsoa_name=lsoa_name,
+        borough=borough,
+        categories=cats,
+        series=series,
+    )
 
 
 @app.get("/api/allocation", response_model=AllocationResponse)

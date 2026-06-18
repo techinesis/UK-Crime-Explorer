@@ -318,6 +318,7 @@ interface CrimeMapProps {
   theme: Theme
   meta?: MetaResponse
   allocation?: AllocationResponse
+  onSelectLsoa?: (sel: { code: string; name: string; borough: string }) => void
 }
 
 export default function CrimeMap({
@@ -330,6 +331,7 @@ export default function CrimeMap({
   theme,
   meta,
   allocation,
+  onSelectLsoa,
 }: CrimeMapProps) {
   const city = meta?.city ?? CITIES[0]
 
@@ -392,6 +394,18 @@ export default function CrimeMap({
   }, [allocation])
 
   const displaySchedule = useCallback((info: PickingInfo) => {
+    // Selection fires on any LSOA-level click (both historical and forecast
+    // modes) so the recap panel can show that LSOA's time series. This is
+    // additive — the forecast-only schedule popup below is unchanged.
+    if (info.object && level === 'lsoa') {
+      const p = (info.object as BoundaryFeature).properties
+      onSelectLsoa?.({
+        code: String(p.lsoa_code),
+        name: String(p.lsoa_name ?? p.lsoa_code),
+        borough: String(p.borough ?? ''),
+      })
+    }
+
     if (!info.object || level !== 'lsoa' || !isForecast) {
       setPopup(null)
       return
@@ -415,10 +429,14 @@ export default function CrimeMap({
       x: info.x,
       y: info.y,
     })
-  }, [scheduleByLsoa, level, isForecast])
+  }, [scheduleByLsoa, level, isForecast, onSelectLsoa])
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div
+      role="img"
+      aria-label="Choropleth map of London crime by LSOA"
+      style={{ position: 'relative', width: '100%', height: '100%' }}
+    >
       <DeckGL
         viewState={viewState}
         controller={{ dragRotate: false }}

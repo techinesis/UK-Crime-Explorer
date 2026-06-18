@@ -77,6 +77,20 @@ export interface AllocationResponse {
   entries: AllocationEntry[]
 }
 
+export interface TimeseriesPoint {
+  year: number
+  month: number
+  count: number
+}
+
+export interface TimeseriesResponse {
+  lsoa_code: string
+  lsoa_name: string
+  borough: string
+  categories: string[]
+  series: TimeseriesPoint[]
+}
+
 // GeoJSON shape for the boundary layers (geometry + trimmed props).
 import type { Feature, FeatureCollection, Geometry } from 'geojson'
 

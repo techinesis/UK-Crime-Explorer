@@ -9,6 +9,7 @@ import type {
   MapRequest,
   MapResponse,
   MetaResponse,
+  TimeseriesResponse,
   WeightRow,
 } from './types'
 
@@ -53,6 +54,18 @@ export async function fetchMap(req: MapRequest): Promise<MapResponse> {
   } catch (error: unknown) {
     throw new Error(errorMessage(error))
   }
+}
+
+export async function fetchTimeseries(
+  lsoaCode: string,
+  categories: string[],
+  city: string,
+): Promise<TimeseriesResponse> {
+  const p = new URLSearchParams({ lsoa_code: lsoaCode, city: city.toLowerCase() })
+  // Repeated `categories` params match the backend's list query param; an empty
+  // selection means "all categories" (param omitted).
+  for (const c of categories) p.append('categories', c)
+  return getJSON<TimeseriesResponse>(`/api/timeseries?${p}`)
 }
 
 export async function fetchAllocation(req: AllocationRequest): Promise<AllocationResponse> {
