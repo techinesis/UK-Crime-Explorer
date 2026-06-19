@@ -12,7 +12,7 @@ reasoning behind every number; it never prescribes a deployment.
 
 ## Demo
 
-**Live:** https://4-cblw-020-group-3-techinesis-projects.vercel.app
+**Live:** https://4-cblw-020-group-3.vercel.app/
 
 ---
 
