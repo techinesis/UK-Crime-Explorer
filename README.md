@@ -134,11 +134,14 @@ academic year 2025–2026, Group 3. The brief: build a decision-support tool tha
 helps a planner reason about where police attention is most warranted, with the
 reasoning visible and contestable rather than hidden in a model.
 
-<!-- TODO: replace with the real team list, alphabetical by surname, with roles. e.g.:
-- **Surname, Firstname** — role (e.g. data / backend / frontend / ethics / forecasting)
--->
 
-_Team members and roles: to be filled in._
+_Team members:_
+- Joep de Bruijn (2212145)
+- Dragos Chirilă (2154714)
+- Phoebe Dusil (2116154)
+- Efe Koç (2098156)
+- Daan Weling (1914626)
+- Petar Zhelev (2154021)
 
 ---
 
