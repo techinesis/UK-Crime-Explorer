@@ -44,3 +44,6 @@ frontend/public/forecast_dashboard_long.json
 backend/.venv/
 # Vercel local
 .vercel/
+
+# graphify knowledge-graph build artifacts
+graphify-out/
