@@ -14,6 +14,13 @@ reasoning behind every number; it never prescribes a deployment.
 
 **Live:** https://uk-crime-explorer.vercel.app/
 
+![UK Crime Explorer dashboard: a composite police-demand choropleth of London](docs/img/dashboard.png)
+
+The optional AI assistant grounds every quantitative claim in a tool call, with an
+expandable audit badge that names the source behind each number:
+
+![The conversational assistant with an expanded audit badge](docs/img/chat.png)
+
 ---
 
 ## What it does
