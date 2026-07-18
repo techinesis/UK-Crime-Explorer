@@ -1,4 +1,4 @@
-# London Crime Explorer
+# UK Crime Explorer
 
 A data-driven decision-support system that maps recorded crime across London and
 turns it into a composite **police-demand signal** —
@@ -12,7 +12,7 @@ reasoning behind every number; it never prescribes a deployment.
 
 ## Demo
 
-**Live:** https://4-cblw-020-group-3.vercel.app/
+**Live:** https://uk-crime-explorer.vercel.app/
 
 ---
 
@@ -112,6 +112,15 @@ The Vite dev server proxies `/api` to the backend, so open
 backend reads the committed `data/crime_snapshot-london.parquet` (fast, offline);
 delete it to force a rebuild.
 
+### Configure the assistant (optional)
+
+The chat panel is optional and hides itself when no key is set. To enable it, set an Anthropic API key in the backend environment:
+
+    ANTHROPIC_API_KEY=sk-ant-...        # required to enable the chat
+    ANTHROPIC_MODEL=claude-sonnet-5   # optional; defaults to Sonnet 5
+
+Use a cheaper model (for example claude-haiku-4-5) to cut per-message cost. The codebase is provider-agnostic at the call site, so the chat is the one feature that needs a key; the dashboard, allocation, and methodology pages run fully without one.
+
 ---
 
 ## Tests
@@ -127,6 +136,19 @@ delete it to force a rebuild.
 
 ---
 
+## My role
+
+I owned the dashboard, the data layer beneath it, and the conversational interface built on top.
+
+- Led the migration off Streamlit onto a production stack: FastAPI, React and TypeScript, deck.gl and MapLibre, and a framework-agnostic Python core that the forecasting and allocation tracks import directly.
+- Diagnosed and fixed the Vercel deployment failures the cutover initially produced, getting the app live as a static SPA plus one lean Python serverless function.
+- Designed and built the conversational assistant: three stakeholder personas, seven grounded tools, expandable audit badges that name the tool behind every number, and an ethical guardrail that keeps it from prescribing an officer count.
+- Derived the severity weighting and the preventability multipliers behind the composite signal: the script that turns the Cambridge Crime Harm Index into dual mean and median severity weights, and fourteen preventability multipliers with confidence ratings and one-line literature anchors drawn from Braga, Weisburd, and Sherman, Neyroud and Neyroud.
+
+I brought prior knowledge of full-stack architecture and language-model tool use, and picked up geospatial rendering, the Cambridge crime-harm methodology, and the hot-spot policing literature along the way. The lasting contribution is the live deployment the report references, the methodology the composite signal is built on, the assistant that makes the project legible to a non-technical reader, and the smoke suite, refreshed docs, and runbook that keep it maintainable.
+
+---
+
 ## Project context
 
 A TU/e **4CBLW020 — Multidisciplinary Challenge-Based Learning** project,
@@ -134,14 +156,20 @@ academic year 2025–2026, Group 3. The brief: build a decision-support tool tha
 helps a planner reason about where police attention is most warranted, with the
 reasoning visible and contestable rather than hidden in a model.
 
+---
 
-_Team members:_
-- Joep de Bruijn (2212145)
-- Dragos Chirilă (2154714)
-- Phoebe Dusil (2116154)
-- Efe Koç (2098156)
-- Daan Weling (1914626)
-- Petar Zhelev (2154021)
+## Team
+
+Built by Group 3 for TU/e 4CBLW020 Multidisciplinary Challenge-Based Learning, 2025-2026.
+
+- **Phoebe Dusil** - linear-programming allocation track (LP, Rawlsian, and proportional models), the standalone allocation page and weekly schedules, the anti-overpolicing weights, and the multi-city data layer.
+- **Chirila Dragos** - original XGBoost forecasting pipeline and the dashboard forecast view; presented the demo at the final review.
+- **Petar Zhelev** - model comparison (XGBoost vs Random Forest vs Negative Binomial) and the native-XGBoost refactor that fixed out-of-memory errors on the Greater London dataset.
+- **Daan Weling** - research question and requirements, and the severity-weighting and over-policing research that fed the anti-overpolicing weights.
+- **Joep de Bruijn** - the ethics framing the assistant's deployment guardrail is downstream of.
+- **Efe Koç** - dashboard rewrite, data layer, conversational assistant, and the severity and preventability methodology (see My role).
+
+This fork is maintained by Efe Koç for personal-portfolio purposes and is not under active team development.
 
 ---
 

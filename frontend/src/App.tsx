@@ -179,7 +179,7 @@ function Dashboard() {
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
         <div>
-          <h1 className="text-lg font-semibold text-fg">London Crime Explorer</h1>
+          <h1 className="text-lg font-semibold text-fg">UK Crime Explorer</h1>
           <p className="text-xs text-muted">
             Police demand signal across London — crime × severity × preventability
           </p>

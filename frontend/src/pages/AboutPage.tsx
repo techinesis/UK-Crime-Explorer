@@ -134,14 +134,14 @@ export default function AboutPage() {
         <div className="w-full min-w-0 max-w-3xl">
           <h1 className="text-2xl font-semibold text-fg">About &amp; Methodology</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted">
-            This page explains how the London Crime Explorer turns recorded crime into the police
+            This page explains how the UK Crime Explorer turns recorded crime into the police
             demand signal shown on the map. Everything here describes analysis that already runs in
             the app; the page adds no new numbers of its own.
           </p>
 
           <Section id="overview" title="Overview">
             <p>
-              The London Crime Explorer is a decision-support system for police resource allocation.
+              The UK Crime Explorer is a decision-support system for police resource allocation.
               We combine three things an officer planner cares about: how much crime an area is
               expected to see, how serious that crime is, and how much of it visible patrol presence
               can realistically prevent.
