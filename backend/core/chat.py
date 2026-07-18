@@ -126,7 +126,7 @@ GROUP_BY_DIMENSIONS: tuple[str, ...] = ("unit", "category", "year", "month")
 # switching persona still hits the cache.
 
 _SHARED_CORE = """\
-You are the assistant inside the **London Crime Explorer**, a dashboard that maps
+You are the assistant inside the **UK Crime Explorer**, a dashboard that maps
 recorded crime and exposes a composite *police-demand signal* —
 `crime count × severity × preventability` — at LSOA, ward, and borough level.
 London is the default city; the dashboard's City selector also offers Birmingham,

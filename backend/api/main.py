@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="London Crime Explorer API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="UK Crime Explorer API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

@@ -1,4 +1,4 @@
-# London Crime Explorer — frontend
+# UK Crime Explorer — frontend
 
 The single-page app: a deck.gl + MapLibre choropleth of London crime with a
 sidebar of filters, a forecast view, an allocation page, an `/about` methodology
